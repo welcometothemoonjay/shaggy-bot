@@ -1,0 +1,28 @@
+# Segredos e variáveis de ambiente
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Banco de dados e arquivos temporários
+data/shaggy.db
+data/*.db
+data/*.db-wal
+data/*.db-shm
+*.sqlite
+*.sqlite3
+
+# Logs
+*.log
+
+# Editor e sistema
+.vscode/
+.idea/
+.DS_Store
