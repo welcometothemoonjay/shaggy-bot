@@ -1,15 +1,134 @@
 
+import asyncio
 import logging
 import random
+import time
 
 import discord
 from discord import app_commands
 from discord.ext import commands
 
 
+log = logging.getLogger("shaggy.games")
+
+
+# ============================================================
+# RECOMPENSAS (ajuste o equilíbrio aqui)
+# ============================================================
+# XP é a recompensa comum; Abysmus é RARO (só em vitórias, com chance baixa).
+# Cada valor de XP é um intervalo (mín, máx) sorteado a cada recompensa.
+
+# Anti-farm: depois de receber uma recompensa de jogo, o membro precisa
+# esperar este tempo (em segundos) para receber outra. Os jogos continuam
+# funcionando normalmente; só não pagam durante o intervalo.
+RECOMPENSA_COOLDOWN_SEGUNDOS = 45
+
+# jogo -> {resultado: (xp_min, xp_max, chance_de_abysmus)}
+RECOMPENSAS_JOGOS = {
+    "roleta_russa":        {"vitoria": (4, 8, 0.010), "derrota": (0, 0, 0.0)},
+    "moeda":               {"vitoria": (1, 3, 0.003), "derrota": (0, 0, 0.0)},
+    "pedra_papel_tesoura": {"vitoria": (6, 12, 0.015), "empate": (2, 3, 0.0), "derrota": (1, 2, 0.0)},
+    "par_ou_impar":        {"vitoria": (6, 12, 0.015), "derrota": (1, 2, 0.0)},
+    "duelo_numerico":      {"vitoria": (7, 14, 0.020), "empate": (2, 4, 0.0), "derrota": (1, 2, 0.0)},
+    "duelo_elemental":     {"vitoria": (6, 12, 0.015), "empate": (2, 3, 0.0), "derrota": (1, 2, 0.0)},
+    # Acertar 1 entre 5 é difícil: paga mais.
+    "adivinhar_escolha":   {"vitoria": (15, 25, 0.050), "derrota": (1, 2, 0.0)},
+    "sorte_ou_caos":       {"vitoria": (5, 10, 0.010), "derrota": (1, 2, 0.0)},
+}
+
+# /dado: só vale recompensa tirar o número máximo (crítico) em dados grandes.
+DADO_FACES_MINIMAS_RECOMPENSA = 20
+DADO_CRITICO_XP = (10, 20)
+DADO_CRITICO_CHANCE_ABYSMUS = 0.03
+DADO_PARTICIPACAO_XP = (1, 2)
+
+
 class Games(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+        # (guild_id, user_id) -> instante da última recompensa de jogo.
+        self._ultima_recompensa: dict[tuple[int, int], float] = {}
+
+    # =========================
+    # RECOMPENSAS (XP e Abysmus raro)
+    # =========================
+
+    async def recompensar(
+        self,
+        interaction: discord.Interaction,
+        jogo: str,
+        resultado: str,
+    ) -> str:
+        """
+        Concede a recompensa do jogo via cog XpAndCoins e devolve uma linha
+        de texto para anexar à resposta ("" se não houve recompensa).
+        Nunca lança erro: se o sistema de XP estiver indisponível, o jogo
+        simplesmente segue sem recompensa.
+        """
+        faixa = RECOMPENSAS_JOGOS.get(jogo, {}).get(resultado)
+        if faixa is None:
+            return ""
+        return await self._pagar(interaction, jogo, faixa)
+
+    async def _pagar(
+        self,
+        interaction: discord.Interaction,
+        origem: str,
+        faixa: tuple[int, int, float],
+    ) -> str:
+        xp_min, xp_max, chance_abysmus = faixa
+
+        # Recompensas dependem do servidor (XP e saldo são por servidor).
+        if interaction.guild_id is None:
+            return ""
+
+        xp = random.randint(xp_min, xp_max) if xp_max > 0 else 0
+        abysmus = 1 if random.random() < chance_abysmus else 0
+        if xp <= 0 and abysmus <= 0:
+            return ""
+
+        chave = (interaction.guild_id, interaction.user.id)
+        agora = time.monotonic()
+        if agora - self._ultima_recompensa.get(chave, -1e9) < RECOMPENSA_COOLDOWN_SEGUNDOS:
+            return ""
+
+        cog = self.bot.get_cog("XpAndCoins")
+        if cog is None:
+            return ""
+
+        try:
+            r = await asyncio.to_thread(
+                cog.conceder_recompensas,
+                interaction.guild_id,
+                interaction.user.id,
+                xp=xp,
+                coins=abysmus,
+                origem=f"games:{origem}",
+            )
+        except Exception:
+            log.exception("Falha ao conceder recompensa do jogo %s.", origem)
+            return ""
+
+        self._ultima_recompensa[chave] = agora
+
+        partes = []
+        if xp:
+            partes.append(f"✨ **+{xp} XP**")
+        if abysmus:
+            partes.append("🪙 **+1 Abysmus raro!**")
+        if r.nivel > r.nivel_antes:
+            texto_nivel = f"🏆 **Nível {r.nivel}!**"
+            if r.coins_por_nivel:
+                texto_nivel += f" (+{r.coins_por_nivel} 🪙)"
+            partes.append(texto_nivel)
+        return " • ".join(partes)
+
+    @staticmethod
+    def anexar(embed: discord.Embed, linha: str) -> discord.Embed:
+        """Adiciona a linha de recompensa ao final da descrição do embed."""
+        if linha:
+            embed.description = f"{embed.description}\n\n{linha}"
+        return embed
 
     # =========================
     # ROLETA RUSSA VIRTUAL
@@ -27,11 +146,17 @@ class Games(commands.Cog):
 
         if resultado == 1:
             mensagem = "💥 **BANG!** Você perdeu esta rodada!"
+            desfecho = "derrota"
         else:
             mensagem = (
                 "🔫 *Click...* Você sobreviveu à rodada virtual! "
                 f"({resultado}/6)"
             )
+            desfecho = "vitoria"
+
+        linha = await self.recompensar(interaction, "roleta_russa", desfecho)
+        if linha:
+            mensagem += f"\n{linha}"
 
         await interaction.response.send_message(mensagem)
 
@@ -46,9 +171,16 @@ class Games(commands.Cog):
     async def moeda(self, interaction: discord.Interaction):
         resultado = random.choice(["Cara", "Coroa"])
 
-        await interaction.response.send_message(
-            f"🪙 A moeda girou... **{resultado}!**"
-        )
+        # Cara e coroa são equilíbrio puro: só "cara" rende a pequena
+        # recompensa, para o jogo não pagar 100% das vezes.
+        desfecho = "vitoria" if resultado == "Cara" else "derrota"
+        linha = await self.recompensar(interaction, "moeda", desfecho)
+
+        mensagem = f"🪙 A moeda girou... **{resultado}!**"
+        if linha:
+            mensagem += f"\n{linha}"
+
+        await interaction.response.send_message(mensagem)
 
     # =========================
     # DADO PERSONALIZADO
@@ -77,9 +209,28 @@ class Games(commands.Cog):
     ):
         resultado = self.rolar_dado(faces)
 
-        await interaction.response.send_message(
-            f"🎲 **d{faces}**: você tirou **{resultado}**!"
-        )
+        # Só dados grandes pagam, e a recompensa forte é o crítico (tirar o
+        # número máximo). Isso impede farmar com d2 / d3.
+        linha = ""
+        mensagem = f"🎲 **d{faces}**: você tirou **{resultado}**!"
+        if faces >= DADO_FACES_MINIMAS_RECOMPENSA:
+            if resultado == faces:
+                mensagem += " 💥 **CRÍTICO!**"
+                linha = await self._pagar(
+                    interaction,
+                    "dado_critico",
+                    (*DADO_CRITICO_XP, DADO_CRITICO_CHANCE_ABYSMUS),
+                )
+            else:
+                linha = await self._pagar(
+                    interaction,
+                    "dado",
+                    (*DADO_PARTICIPACAO_XP, 0.0),
+                )
+        if linha:
+            mensagem += f"\n{linha}"
+
+        await interaction.response.send_message(mensagem)
 
     @dado.error
     async def dado_error(
@@ -779,6 +930,7 @@ class Games(commands.Cog):
         if escolha_usuario == escolha_shaggy:
             resultado = "🤝 **Empate!** Nem você nem eu temos moral para comemorar."
             cor = discord.Color.gold()
+            desfecho = "empate"
         elif (
             (escolha_usuario == "pedra" and escolha_shaggy == "tesoura")
             or (escolha_usuario == "papel" and escolha_shaggy == "pedra")
@@ -786,9 +938,13 @@ class Games(commands.Cog):
         ):
             resultado = "🏆 **Você venceu!** Tá bom, foi sorte. Na próxima eu volto sério."
             cor = discord.Color.green()
+            desfecho = "vitoria"
         else:
             resultado = "👻 **Shaggy venceu!** Eu nem precisei usar 1% do meu poder."
             cor = discord.Color.red()
+            desfecho = "derrota"
+
+        linha = await self.recompensar(interaction, "pedra_papel_tesoura", desfecho)
 
         embed = self.embed_jogo(
             "🪨 Pedra, Papel e Tesoura",
@@ -797,6 +953,7 @@ class Games(commands.Cog):
             f"{resultado}",
             cor,
         )
+        self.anexar(embed, linha)
         await interaction.response.send_message(embed=embed)
 
     @app_commands.command(
@@ -826,6 +983,10 @@ class Games(commands.Cog):
             texto = f"😈 **Shaggy venceu!** A soma deu {resultado_real}."
             cor = discord.Color.red()
 
+        linha = await self.recompensar(
+            interaction, "par_ou_impar", "vitoria" if venceu else "derrota"
+        )
+
         embed = self.embed_jogo(
             "🔢 Par ou Ímpar",
             f"**Sua escolha:** {paridade.value.title()}\n"
@@ -835,6 +996,7 @@ class Games(commands.Cog):
             f"{texto}",
             cor,
         )
+        self.anexar(embed, linha)
         await interaction.response.send_message(embed=embed)
 
     @app_commands.command(
@@ -855,12 +1017,17 @@ class Games(commands.Cog):
         if distancia_usuario < distancia_shaggy:
             resultado = "🏆 **Você venceu!** Seu palpite chegou mais perto."
             cor = discord.Color.green()
+            desfecho = "vitoria"
         elif distancia_shaggy < distancia_usuario:
             resultado = "👻 **Shaggy venceu!** Meu instinto aleatório é impecável."
             cor = discord.Color.red()
+            desfecho = "derrota"
         else:
             resultado = "🤝 **Empate!** Os dois chegaram à mesma distância."
             cor = discord.Color.gold()
+            desfecho = "empate"
+
+        linha = await self.recompensar(interaction, "duelo_numerico", desfecho)
 
         embed = self.embed_jogo(
             "🎯 Duelo Numérico",
@@ -870,6 +1037,7 @@ class Games(commands.Cog):
             f"{resultado}",
             cor,
         )
+        self.anexar(embed, linha)
         await interaction.response.send_message(embed=embed)
 
     @app_commands.command(
@@ -895,12 +1063,17 @@ class Games(commands.Cog):
         if usuario == shaggy:
             resultado = "🤝 **Empate elemental!** As forças se anularam."
             cor = discord.Color.gold()
+            desfecho = "empate"
         elif vence[usuario] == shaggy:
             resultado = "🏆 **Você venceu o duelo elemental!**"
             cor = discord.Color.green()
+            desfecho = "vitoria"
         else:
             resultado = "💥 **Shaggy venceu!** Seu elemento foi superado."
             cor = discord.Color.red()
+            desfecho = "derrota"
+
+        linha = await self.recompensar(interaction, "duelo_elemental", desfecho)
 
         embed = self.embed_jogo(
             "⚡ Duelo Elemental",
@@ -909,6 +1082,7 @@ class Games(commands.Cog):
             f"{resultado}",
             cor,
         )
+        self.anexar(embed, linha)
         await interaction.response.send_message(embed=embed)
 
     @app_commands.command(
@@ -935,9 +1109,13 @@ class Games(commands.Cog):
         if usuario == shaggy:
             resultado = "🧠 **Acertou!** Você leu a mente do Shaggy."
             cor = discord.Color.green()
+            desfecho = "vitoria"
         else:
             resultado = "❌ **Não foi dessa vez!** Tente prever meu caos na próxima."
             cor = discord.Color.red()
+            desfecho = "derrota"
+
+        linha = await self.recompensar(interaction, "adivinhar_escolha", desfecho)
 
         embed = self.embed_jogo(
             "🔮 Adivinhe a Escolha",
@@ -946,6 +1124,7 @@ class Games(commands.Cog):
             f"{resultado}",
             cor,
         )
+        self.anexar(embed, linha)
         await interaction.response.send_message(embed=embed)
 
     @app_commands.command(
@@ -970,9 +1149,13 @@ class Games(commands.Cog):
         if escolha.value == sorteio:
             resultado = f"🎉 **Você acertou!** {frases[sorteio]}"
             cor = discord.Color.green()
+            desfecho = "vitoria"
         else:
             resultado = f"💀 **Você errou!** {frases[sorteio]}"
             cor = discord.Color.red()
+            desfecho = "derrota"
+
+        linha = await self.recompensar(interaction, "sorte_ou_caos", desfecho)
 
         embed = self.embed_jogo(
             "🍀 Sorte ou Caos",
@@ -981,6 +1164,7 @@ class Games(commands.Cog):
             f"{resultado}",
             cor,
         )
+        self.anexar(embed, linha)
         await interaction.response.send_message(embed=embed)
 
 
