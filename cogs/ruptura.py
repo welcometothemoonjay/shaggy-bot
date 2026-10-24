@@ -1310,6 +1310,7 @@ class RunState:
     xp: int = 0
     abysmus: int = 0
     abates: int = 0
+    abatidos: dict[str, int] = field(default_factory=dict)  # "categoria|Criatura" -> total (ranking)
 
     # Atributos do jogador
     vida: int = 0
@@ -5031,6 +5032,8 @@ class RupturaTemporal(commands.Cog):
             moedas = random.randint(minimo, maximo)
 
         run.abates += 1
+        chave_abate = f"{categoria}|{spec.nome}"
+        run.abatidos[chave_abate] = run.abatidos.get(chave_abate, 0) + 1
         run.xp += xp_ganho
         run.abysmus += moedas
 
@@ -5094,6 +5097,26 @@ class RupturaTemporal(commands.Cog):
             f"={bonus_xp} | relíquias="
             f"{[r.nome for r in run.reliquias]} | equipados={run.equipados} "
             f"| duração={duracao}s | recompensa_salva={persistido}"
+        )
+
+        # Ranking (SQLite): o cog cogs/ruptura_extras.py escuta este evento.
+        self.bot.dispatch(
+            "ruptura_run_finalizada",
+            {
+                "run_id": run.run_id,
+                "guild_id": run.guild_id,
+                "user_id": run.user_id,
+                "user_nome": run.user_nome,
+                "classe_key": run.classe_key,
+                "classe_nome": run.classe.nome,
+                "nivel": run.nivel,
+                "abates": run.abates,
+                "xp": run.xp,
+                "abysmus": run.abysmus,
+                "duracao": duracao,
+                "motivo": motivo,
+                "abatidos": dict(run.abatidos),
+            },
         )
 
         embed = criar_embed(run, "FIM DA RUPTURA")
