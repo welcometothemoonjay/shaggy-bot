@@ -31,6 +31,16 @@ API PARA OUTROS COGS (ex.: Ruptura Temporal)
 IMPORTANTE: o servidor (guild_id) é obrigatório, porque o saldo e o XP
 são por servidor. O jogo precisa enviar o guild_id da interação.
 
+COMANDOS DE ADMINISTRADOR (aparecem ao digitar "/" para quem é admin)
+--------------------------------------------------------------------
+    /xp_gerenciar    membro, ação (Adicionar/Remover/Definir total), quantidade
+    /coin_gerenciar  membro, ação (Adicionar/Remover/Definir saldo), quantidade
+
+Proteções: só administradores; resposta imediata (sem "não respondeu");
+cada alteração é UMA transação atômica; trava por membro (sem execuções
+simultâneas), cooldown por admin e tempo-limite — o comando sempre termina
+com uma resposta, nunca fica "pensando" para sempre.
+
 Chamado pelo main.py:
     await bot.get_cog("XpAndCoins").processar_mensagem(message)
 """
@@ -100,6 +110,14 @@ ABYSMUS_POR_NIVEL = 1
 
 # Se True, o bot avisa no canal quando alguém sobe de nível.
 ANUNCIAR_LEVEL_UP = True
+
+# --- Comandos de administrador (/xp_gerenciar e /coin_gerenciar) ---
+# Tempo máximo esperando o banco; passou disso, o comando avisa e termina.
+GERENCIAR_TIMEOUT_SEGUNDOS = 8
+# Intervalo mínimo entre dois usos por administrador (anti duplo clique).
+GERENCIAR_COOLDOWN_SEGUNDOS = 3
+# Limite por operação (também aplicado nos campos do slash).
+GERENCIAR_MAX_QUANTIDADE = 1_000_000
 
 
 # ============================================================
@@ -256,9 +274,22 @@ class ResultadoXp:
 # COG
 # ============================================================
 
+class SaldoInsuficienteError(ValueError):
+    """Tentativa de remover mais Abysmus do que o membro possui."""
+
+    def __init__(self, saldo: int):
+        super().__init__("Saldo insuficiente.")
+        self.saldo = saldo
+
+
 class XpAndCoins(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+
+        # Travas dos comandos de administrador: uma operação por vez em cada
+        # membro. Se já houver uma em andamento, a nova é recusada na hora
+        # (nada de fila de comandos empilhando).
+        self._travas_gerenciar: dict[tuple[int, int], asyncio.Lock] = {}
 
         # Cache em memória do último XP recebido: evita consultar o banco
         # a cada mensagem enquanto o membro ainda está no cooldown.
@@ -534,6 +565,68 @@ class XpAndCoins(commands.Cog):
         )
         return r
 
+    # ---------- Gerenciamento por administradores (atômico) ----------
+
+    def gerenciar_xp(
+        self,
+        guild_id: int,
+        user_id: int,
+        acao: str,
+        quantidade: int,
+    ) -> ResultadoXp:
+        """
+        Adiciona, remove ou define o XP em UMA transação (ler + gravar sem
+        brecha para corrida com o XP de mensagens). O XP nunca fica
+        negativo; níveis inéditos pagam Abysmus como sempre.
+        """
+        if quantidade < 0:
+            raise ValueError("A quantidade não pode ser negativa.")
+
+        if acao == "adicionar":
+            calculo = lambda atual: atual + quantidade
+        elif acao == "remover":
+            calculo = lambda atual: max(0, atual - quantidade)
+        elif acao == "definir":
+            calculo = lambda _atual: quantidade
+        else:
+            raise ValueError(f"Ação inválida: {acao!r}.")
+
+        with self.transacao() as db:
+            return self._gravar(db, guild_id, user_id, calculo)
+
+    def gerenciar_coins(
+        self,
+        guild_id: int,
+        user_id: int,
+        acao: str,
+        quantidade: int,
+    ) -> tuple[int, int]:
+        """
+        Adiciona, remove ou define o saldo de Abysmus em UMA transação.
+        Retorna (saldo antes, saldo depois).
+        Levanta SaldoInsuficienteError se a remoção deixaria o saldo < 0.
+        """
+        if quantidade < 0:
+            raise ValueError("A quantidade não pode ser negativa.")
+        if acao not in ("adicionar", "remover", "definir"):
+            raise ValueError(f"Ação inválida: {acao!r}.")
+
+        with self.transacao() as db:
+            antes = self.obter_saldo_tx(db, guild_id, user_id)
+
+            if acao == "adicionar":
+                diferenca = quantidade
+            elif acao == "remover":
+                if quantidade > antes:
+                    raise SaldoInsuficienteError(antes)
+                diferenca = -quantidade
+            else:
+                diferenca = quantidade - antes
+
+            depois = self.alterar_coins_tx(db, guild_id, user_id, diferenca)
+
+        return antes, depois
+
     # ---------- XP por mensagem ----------
 
     async def processar_mensagem(self, message: discord.Message):
@@ -766,12 +859,98 @@ class XpAndCoins(commands.Cog):
             f"🪙 **{alvo.display_name}** possui **{saldo:,} Abysmus**."
         )
 
+    # ---------- Comandos de administrador ----------
+
+    async def _executar_gerenciar(
+        self,
+        interaction: discord.Interaction,
+        membro: discord.Member,
+        operacao,
+    ):
+        """
+        Esqueleto seguro dos comandos de gerenciar. Garante que:
+        - só administradores usam;
+        - a interação é reconhecida na hora (sem erro de "não respondeu");
+        - não há duas operações ao mesmo tempo no mesmo membro;
+        - o banco roda em thread com tempo-limite;
+        - SEMPRE existe uma resposta final (sucesso ou erro), sem loop.
+
+        `operacao` é uma função sem argumentos (síncrona) que mexe no banco
+        e devolve o texto da resposta de sucesso.
+        """
+        if not await self.exigir_administrador(interaction):
+            return
+
+        if membro.bot:
+            await interaction.response.send_message(
+                "❌ Bots não possuem XP nem Abysmus.", ephemeral=True
+            )
+            return
+
+        chave = (interaction.guild_id, membro.id)
+        trava = self._travas_gerenciar.setdefault(chave, asyncio.Lock())
+
+        # Operação em andamento neste membro: recusa em vez de enfileirar.
+        if trava.locked():
+            await interaction.response.send_message(
+                "⏳ Já existe uma alteração em andamento para este membro. "
+                "Aguarde um instante.",
+                ephemeral=True,
+            )
+            return
+
+        await interaction.response.defer(ephemeral=True, thinking=True)
+
+        async with trava:
+            try:
+                texto = await asyncio.wait_for(
+                    asyncio.to_thread(operacao),
+                    timeout=GERENCIAR_TIMEOUT_SEGUNDOS,
+                )
+            except SaldoInsuficienteError as erro:
+                texto = (
+                    f"❌ {membro.mention} possui apenas "
+                    f"**{erro.saldo:,} Abysmus**; não dá para remover mais "
+                    "do que isso."
+                )
+            except asyncio.TimeoutError:
+                log.error(
+                    "Tempo esgotado ao gerenciar %s em guild=%s.",
+                    membro.id, interaction.guild_id,
+                )
+                texto = (
+                    "⌛ O banco demorou demais para responder. Verifique o "
+                    "valor com /xp ou /coins antes de tentar de novo."
+                )
+            except sqlite3.Error:
+                log.exception("Erro no banco ao gerenciar %s.", membro.id)
+                texto = "❌ Erro ao atualizar o banco de dados."
+            except ValueError as erro:
+                texto = f"❌ {erro}"
+            except Exception:
+                log.exception("Erro inesperado ao gerenciar %s.", membro.id)
+                texto = "❌ Erro inesperado. Veja o log do bot."
+
+        try:
+            await interaction.followup.send(texto, ephemeral=True)
+        except discord.HTTPException:
+            log.warning("Não foi possível enviar a resposta do gerenciar.")
+
+        # Limpa a trava para não acumular entradas na memória.
+        if not trava.locked():
+            self._travas_gerenciar.pop(chave, None)
+
     @app_commands.command(
         name="xp_gerenciar",
-        description="Adicione, remova ou defina o XP de um membro.",
+        description="Adicione, remova ou defina o XP de um membro (admin).",
     )
     @app_commands.guild_only()
     @app_commands.default_permissions(administrator=True)
+    @app_commands.checks.has_permissions(administrator=True)
+    @app_commands.checks.cooldown(
+        1, GERENCIAR_COOLDOWN_SEGUNDOS,
+        key=lambda i: (i.guild_id, i.user.id),
+    )
     @app_commands.describe(
         membro="Membro que será alterado.",
         acao="Operação de XP.",
@@ -787,51 +966,45 @@ class XpAndCoins(commands.Cog):
         interaction: discord.Interaction,
         membro: discord.Member,
         acao: app_commands.Choice[str],
-        quantidade: app_commands.Range[int, 0, 1_000_000],
+        quantidade: app_commands.Range[int, 0, GERENCIAR_MAX_QUANTIDADE],
     ):
-        if not await self.exigir_administrador(interaction):
-            return
+        guild_id, admin_id = interaction.guild_id, interaction.user.id
 
-        xp_atual, _, _, _, _ = self.obter_dados(
-            interaction.guild_id, membro.id
-        )
+        def operacao() -> str:
+            r = self.gerenciar_xp(guild_id, membro.id, acao.value, quantidade)
 
-        if acao.value == "adicionar":
-            novo_xp = xp_atual + quantidade
-        elif acao.value == "remover":
-            novo_xp = max(0, xp_atual - quantidade)
-        else:
-            novo_xp = quantidade
+            log.info(
+                "Admin %s alterou XP de %s (%s %s) -> xp=%s nível=%s",
+                admin_id, membro.id, acao.value, quantidade,
+                r.xp_total, r.nivel,
+            )
 
-        total, nivel, saldo, moedas = self.atualizar_xp(
-            interaction.guild_id, membro.id, novo_xp
-        )
+            texto = (
+                f"✅ XP atualizado para {membro.mention}.\n"
+                f"**XP:** {r.xp_antes:,} → {r.xp_total:,}\n"
+                f"**Nível:** {r.nivel_antes} → {r.nivel}\n"
+                f"**Abysmus:** {r.coins_total:,}"
+            )
+            if r.coins_por_nivel:
+                texto += (
+                    "\n🏆 Recompensa por nível inédito: "
+                    f"+{r.coins_por_nivel} Abysmus."
+                )
+            return texto
 
-        log.info(
-            "Admin %s alterou XP de %s (%s %s) -> xp=%s nível=%s",
-            interaction.user.id, membro.id, acao.value, quantidade,
-            total, nivel,
-        )
-
-        mensagem = (
-            f"XP atualizado para {membro.mention}.\n"
-            f"**XP:** {total:,}\n"
-            f"**Nível:** {nivel}\n"
-            f"**Abysmus:** {saldo:,}"
-        )
-        if moedas:
-            mensagem += f"\n🏆 Recompensa por nível inédito: +{moedas} Abysmus."
-
-        await interaction.response.send_message(
-            mensagem, ephemeral=True
-        )
+        await self._executar_gerenciar(interaction, membro, operacao)
 
     @app_commands.command(
         name="coin_gerenciar",
-        description="Adicione, remova ou defina Abysmus de um membro.",
+        description="Adicione, remova ou defina Abysmus de um membro (admin).",
     )
     @app_commands.guild_only()
     @app_commands.default_permissions(administrator=True)
+    @app_commands.checks.has_permissions(administrator=True)
+    @app_commands.checks.cooldown(
+        1, GERENCIAR_COOLDOWN_SEGUNDOS,
+        key=lambda i: (i.guild_id, i.user.id),
+    )
     @app_commands.describe(
         membro="Membro que será alterado.",
         acao="Operação de moedas.",
@@ -847,44 +1020,68 @@ class XpAndCoins(commands.Cog):
         interaction: discord.Interaction,
         membro: discord.Member,
         acao: app_commands.Choice[str],
-        quantidade: app_commands.Range[int, 0, 1_000_000],
+        quantidade: app_commands.Range[int, 0, GERENCIAR_MAX_QUANTIDADE],
     ):
-        if not await self.exigir_administrador(interaction):
-            return
+        guild_id, admin_id = interaction.guild_id, interaction.user.id
 
-        _, _, saldo_atual, _, _ = self.obter_dados(
-            interaction.guild_id, membro.id
-        )
+        def operacao() -> str:
+            antes, depois = self.gerenciar_coins(
+                guild_id, membro.id, acao.value, quantidade
+            )
 
-        if acao.value == "adicionar":
-            diferenca = quantidade
-        elif acao.value == "remover":
-            diferenca = -quantidade
+            log.info(
+                "Admin %s alterou Abysmus de %s (%s %s) -> %s => %s",
+                admin_id, membro.id, acao.value, quantidade, antes, depois,
+            )
+
+            return (
+                f"🪙 Saldo de {membro.mention} atualizado.\n"
+                f"**Abysmus:** {antes:,} → {depois:,}"
+            )
+
+        await self._executar_gerenciar(interaction, membro, operacao)
+
+    async def cog_app_command_error(
+        self,
+        interaction: discord.Interaction,
+        error: app_commands.AppCommandError,
+    ):
+        """
+        Garante resposta mesmo quando uma verificação falha (permissão,
+        cooldown) ou algo escapa: o comando nunca fica sem resposta.
+        """
+        if isinstance(error, app_commands.MissingPermissions):
+            texto = "Você precisa ser administrador para usar este comando."
+        elif isinstance(error, app_commands.CommandOnCooldown):
+            texto = (
+                f"⏳ Aguarde {error.retry_after:.0f}s para usar de novo."
+            )
+        elif isinstance(error, app_commands.NoPrivateMessage):
+            texto = "Este comando só pode ser usado em um servidor."
         else:
-            diferenca = quantidade - saldo_atual
+            log.exception(
+                "Erro não tratado em /%s.",
+                interaction.command.qualified_name
+                if interaction.command else "?",
+                exc_info=error,
+            )
+            texto = "❌ Ocorreu um erro ao executar o comando."
 
         try:
-            novo_saldo = self.alterar_coins(
-                interaction.guild_id, membro.id, diferenca
-            )
-        except ValueError:
-            await interaction.response.send_message(
-                "❌ O membro não possui Abysmus suficientes.",
-                ephemeral=True,
-            )
-            return
+            if interaction.response.is_done():
+                await interaction.followup.send(texto, ephemeral=True)
+            else:
+                await interaction.response.send_message(
+                    texto, ephemeral=True
+                )
+        except discord.HTTPException:
+            pass
 
-        log.info(
-            "Admin %s alterou Abysmus de %s (%s %s) -> saldo=%s",
-            interaction.user.id, membro.id, acao.value, quantidade,
-            novo_saldo,
-        )
-
-        await interaction.response.send_message(
-            f"🪙 Saldo de {membro.mention} atualizado: "
-            f"**{novo_saldo:,} Abysmus**.",
-            ephemeral=True,
-        )
+    async def cog_load(self):
+        # Ajuda a diagnosticar "o slash não aparece": mostra no terminal
+        # quais comandos este cog registrou na árvore do bot.
+        nomes = sorted(c.qualified_name for c in self.get_app_commands())
+        log.info("Comandos de XP registrados: %s", ", ".join(nomes))
 
 
 async def setup(bot: commands.Bot):
