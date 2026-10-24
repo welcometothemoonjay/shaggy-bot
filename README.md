@@ -75,11 +75,9 @@ shaggy-bot/
 │   ├── games.py
 │   ├── mystic.py
 │   ├── social.py
-│   ├── adm.py
 │   ├── utilitys.py
 │   └── ...
 ├── data/
-│   └── shaggy.db
 ├── .env
 ├── .gitignore
 └── README.md
