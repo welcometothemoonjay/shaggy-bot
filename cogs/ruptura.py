@@ -1125,6 +1125,110 @@ def registrar_criatura(spec: EnemySpec) -> EnemySpec:
     CRIATURAS.append(spec)
     return spec
 
+# ============================================================
+# NOVAS CRIATURAS — Ruptura Temporal
+# ============================================================
+# Cole logo abaixo dos outros `registrar_criatura(...)` em cogs/ruptura.py
+# e rode `python test_ruptura.py`.
+#
+# Ordem dos campos:
+#   nome, era, nivel_minimo, vida, ataque, defesa, xp, abysmus, habilidade, descricao
+#
+# Lore: propostas de expansão para SFA, ainda não cânone. As origens
+# abaixo são hipóteses (ninguém no mundo confirma nada).
+# ============================================================
+
+
+# ------------------------- DA'KOR ----------------------------
+
+# Origem (proposta): musgo que cresceu em torno de um posto de vigia abandonado.
+# Motivação: guarda o lugar, não quem passa. Contornar: ela só reage a quem entra.
+registrar_criatura(EnemySpec(
+    "Vigília de Musgo", "Da'kor", 1, 30, 7, 0, 12, 8, "regenerar",
+    "Musgo que se ergue em forma de sentinela. Dizem que ela só protege o chão onde está parada.",
+))
+
+# Origem (proposta): matilha que seguia o rastro de algo que nunca foi encontrado.
+# Motivação: fome e hábito. Contornar: ataca primeiro, então vale entrar de guarda alta.
+registrar_criatura(EnemySpec(
+    "Lobo de Bruma", "Da'kor", 6, 72, 16, 3, 40, 10, "emboscada",
+    "Um lobo feito de neblina e pelo úmido. Só se vê o animal quando ele já está perto demais.",
+))
+
+# Origem (proposta): uma anciã que fez um trato com o charco e não sabe mais quem cumpre o quê.
+registrar_criatura(EnemySpec(
+    "Anciã do Charco", "Da'kor", 9, 94, 14, 3, 76, 14, "maldicao",
+    "Ela fala baixo, em rimas que ninguém ensinou. Quem escuta até o fim sai sentindo o peso de uma promessa que não fez.",
+    categoria="mini_chefe",
+))
+
+# Origem (proposta): um rio que secou e continua se comportando como se ainda corresse.
+registrar_criatura(EnemySpec(
+    "A Mãe das Marés Secas", "Da'kor", 10, 142, 14, 4, 140, 20, "drenar",
+    "Onde ela pisa, a água some das poças, dos odres e das gargantas. O leito vazio atrás dela ainda guarda o formato de uma correnteza.",
+    categoria="chefe",
+))
+
+
+# ------------------------ ERA A VAPOR ------------------------
+
+# Origem (proposta): válvula de pressão de uma caldeira que ficou ligada tempo demais.
+registrar_criatura(EnemySpec(
+    "Válvula Faminta", "Era a Vapor", 3, 46, 12, 2, 24, 8, "drenar",
+    "Uma válvula de pressão que aprendeu a sugar o calor de quem passa. Ela não parece saber o que fazer com ele.",
+))
+
+# Origem (proposta): autômato de entregas que continua levando uma carta sem destinatário.
+registrar_criatura(EnemySpec(
+    "Mensageiro de Latão", "Era a Vapor", 8, 86, 17, 4, 50, 10, "blindagem",
+    "Casco de latão polido e um malote lacrado. Ele não ataca por maldade: qualquer um que tente abrir o malote vira obstáculo.",
+))
+
+# Origem (proposta): um contador que passou a cobrar o que não lhe devem.
+registrar_criatura(EnemySpec(
+    "Tesoureiro de Brasas", "Era a Vapor", 6, 78, 12, 3, 58, 14, "furia",
+    "Cada moeda que ele recusa o deixa mais quente. No fim da conversa, a conta já está em chamas.",
+    categoria="mini_chefe",
+))
+
+# Origem (proposta): o dono de uma fundição que virou a própria pressão que administrava.
+registrar_criatura(EnemySpec(
+    "O Barão da Pressão", "Era a Vapor", 15, 174, 17, 4, 184, 20, "furia",
+    "Um homem de casaco longo e ponteiros no lugar dos olhos. Quanto mais ele se irrita, mais alto o apito dentro do peito.",
+    categoria="chefe",
+))
+
+
+# ------------------- FUTURO DISTORCIDO -----------------------
+
+# Origem (proposta): um trem que passa em todas as estações de um futuro que não aconteceu.
+registrar_criatura(EnemySpec(
+    "Eco do Último Trem", "Futuro Distorcido", 5, 62, 15, 3, 36, 10, "salto_temporal",
+    "O apito chega antes do trem, e o trem chega antes de você olhar. Ninguém viu um passageiro descer.",
+))
+
+# Origem (proposta): mapeador que desenhou rachaduras no tempo e foi engolido pelo próprio mapa.
+registrar_criatura(EnemySpec(
+    "Cartógrafo de Rachaduras", "Futuro Distorcido", 10, 108, 21, 5, 68, 10, "maldicao",
+    "Traça linhas no ar e as linhas viram fendas. Quem pisa no que ele desenhou carrega a marca por mais tempo do que devia.",
+))
+
+# Origem (proposta): um ponteiro solto que continua marcando um relógio que já não existe.
+# Nível 12: valores extrapolados da curva dos mini-chefes (3, 6, 9). Revise no --sim.
+registrar_criatura(EnemySpec(
+    "Ponteiro Sem Relógio", "Futuro Distorcido", 12, 106, 15, 3, 92, 14, "ultimo_suspiro",
+    "Um ponteiro do tamanho de uma lança que aponta para um instante só. Quando cai, o instante apontado costuma acontecer.",
+    categoria="mini_chefe",
+))
+
+# Origem (proposta): um registro que passou a escrever o que ainda vai acontecer.
+registrar_criatura(EnemySpec(
+    "O Cronista do Fim", "Futuro Distorcido", 20, 205, 18, 5, 225, 20, "ultimo_suspiro",
+    "Escreve sem parar numa língua que ninguém leu. Cada página que arranca vira um dia que você não vai viver de novo.",
+    categoria="chefe",
+))
+
+
 
 # eras: Da'kor, Era a Vapor e Futuro Distorcido.
 registrar_criatura(EnemySpec(
@@ -1229,6 +1333,7 @@ registrar_criatura(EnemySpec(
     "A ausência de um nome abre uma ferida na realidade.",
     categoria="deus",
 ))
+
 
 
 def validar_catalogos() -> None:

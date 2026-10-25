@@ -9,8 +9,10 @@ carregaria dois /help e daria erro).
 COMANDOS
 --------
 Para todos
-  /help [comando]      ajuda interativa por categoria (só mostra o que você
-                       pode usar; detalha um comando se você informar o nome)
+  /help [comando]      ajuda interativa por categoria, com emoji (só mostra o
+                       que você pode usar). Informe o nome de um comando ou
+                       categoria para ver os detalhes; comandos híbridos
+                       (slash + prefixo) aparecem uma vez só, com 🔷
   /ping                teste de latência: gateway, API, edição e banco
   /status              painel do bot: uptime, recursos, servidores, cogs
   /servidor            informações do servidor
@@ -46,14 +48,16 @@ SEGURANÇA
 
 COMO EXPANDIR
 -------------
-  * Novo cog? Aparece sozinho no /help. Para dar nome e emoji à categoria,
-    adicione uma linha em CATEGORIAS.
+  * Novo cog? Aparece sozinho no /help, com emoji automático pelas palavras
+    do nome (EMOJIS_POR_PALAVRA). Para escolher nome e emoji, adicione uma
+    linha em CATEGORIAS.
   * Novo comando de moderação: copie um de /membro e use o decorador
     @permissoes(...); o /help passa a esconder o comando de quem não pode
     usá-lo.
 """
 
 import asyncio
+import difflib
 import logging
 import math
 import platform
@@ -61,6 +65,7 @@ import re
 import sqlite3
 import sys
 import time
+import unicodedata
 from contextlib import closing
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -100,18 +105,76 @@ MAX_LIMPAR = 200                    # mensagens por /limpar
 LIMITE_CHARS_PAGINA = 3500          # tamanho máximo de uma página do /help
 TIMEOUT_VIEWS = 180                 # segundos até os botões expirarem
 
-# Nome e emoji de cada categoria do /help (chave = nome da classe do cog).
-# Cogs que não estiverem aqui aparecem automaticamente com 📦.
+# Nome e emoji de cada categoria do /help (chave = nome da classe do cog;
+# maiúsculas, acentos e espaços não fazem diferença). Cogs que não estiverem
+# aqui recebem um emoji automático pelas palavras do nome (veja
+# EMOJIS_POR_PALAVRA) e só caem em 📦 se nada combinar.
 CATEGORIAS = {
+    # Jogos e RPG
     "Games": ("🎮", "Jogos"),
     "GameSFA": ("🃏", "SFA — Duelo de cartas"),
     "RupturaTemporal": ("🌀", "Ruptura Temporal"),
+    "RupturaDuelo": ("⚔️", "Ruptura — Duelos"),
+    "RupturaExtras": ("🕰️", "Ruptura — Ranking e IA"),
+    "Cassino": ("🎰", "Cassino"),
+    "PetCog": ("🐾", "Pets"),
+    "Missoes": ("🎯", "Missões"),
+    # Progressão
     "XpAndCoins": ("✨", "XP e Abysmus"),
     "Badges": ("🏅", "Insígnias"),
-    "Social": ("💞", "Social"),
+    "Ranking": ("🏆", "Ranking"),
+    # Conteúdo e IA
+    "IA": ("🤖", "IA"),
+    "lore": ("📜", "Lore"),
+    "Noticias": ("📰", "Notícias"),
     "Mystic": ("🔮", "Místico"),
+    # Comunidade e utilidades
+    "Social": ("💞", "Social"),
+    "Ferramentas": ("🧰", "Ferramentas"),
     "Utility": ("🛠️", "Utilidades e moderação"),
 }
+
+EMOJI_PADRAO = "📦"
+
+# Emoji automático para cogs fora de CATEGORIAS: (emoji, palavras).
+# Compara com as palavras do nome do cog ("RupturaDuelo" -> "ruptura",
+# "duelo"). Palavras com 4+ letras também valem como início ("notici" casa
+# com "noticias"). A primeira regra que combinar vence.
+EMOJIS_POR_PALAVRA = [
+    ("🎰", ("cassino", "casino", "aposta", "slot", "roleta", "blackjack")),
+    ("⚔️", ("duelo", "duel", "batalha", "pvp", "arena", "combate")),
+    ("🐾", ("pet", "animal")),
+    ("🏆", ("rank", "placar", "leaderboard", "top")),
+    ("🎯", ("missao", "missoes", "quest", "desafio", "tarefa")),
+    ("📰", ("noticia", "news")),
+    ("📜", ("lore", "historia", "wiki", "codex")),
+    ("🤖", ("ia", "ai", "gpt", "chat")),
+    ("🔮", ("mystic", "mistico", "oraculo", "tarot")),
+    ("💞", ("social", "casamento", "amizade")),
+    ("🏅", ("badge", "insignia")),
+    ("✨", ("xp", "coins", "economia", "nivel", "level")),
+    ("🛒", ("loja", "shop", "store", "mercado")),
+    ("🎒", ("inventario", "inventory", "item", "itens")),
+    ("🎵", ("musica", "music", "audio", "radio")),
+    ("🛡️", ("modera", "mod", "automod", "seguranca")),
+    ("👋", ("boasvindas", "vindas", "vindo", "welcome")),
+    ("🎂", ("aniversario", "birthday")),
+    ("🎫", ("ticket", "tickets")),
+    ("🗳️", ("enquete", "poll", "votacao")),
+    ("⏰", ("lembrete", "reminder", "alarme", "timer")),
+    ("🌦️", ("clima", "weather")),
+    ("🧰", ("ferramenta", "ferramentas", "tool", "tools")),
+    ("🛠️", ("util", "utility", "utilidade", "utilidades")),
+    ("⚙️", ("config", "configuracao", "settings")),
+    ("📊", ("stats", "estatistica", "estatisticas")),
+    ("🎁", ("sorteio", "giveaway")),
+    ("🖼️", ("imagem", "image", "meme", "memes")),
+    ("🔍", ("busca", "search")),
+    ("🧪", ("teste", "test", "debug", "dev")),
+    ("🃏", ("carta", "cartas", "card", "sfa")),
+    ("🎮", ("game", "games", "jogo", "jogos")),
+    ("🌀", ("ruptura",)),
+]
 
 # Nomes das permissões em português (para mensagens de erro e /help).
 PERMISSOES_PT = {
@@ -357,29 +420,117 @@ def uso_comando(cmd) -> str:
     return " ".join(partes)
 
 
-@dataclass
-class Entrada:
-    """Um comando listado no /help (slash ou de prefixo)."""
-    nome: str          # nome completo, sem barra
-    uso: str
-    descricao: str
-    categoria: str     # nome da classe do cog
-    prefixo: bool = False
-    objeto: object = None
+def sem_acento(texto: str) -> str:
+    """Remove acentos ('Missões' -> 'Missoes')."""
+    decomposto = unicodedata.normalize("NFKD", texto)
+    return "".join(c for c in decomposto if not unicodedata.combining(c))
+
+
+def chave_categoria(nome: str) -> str:
+    """Chave de comparação: sem acento, minúscula, só letras e números."""
+    return re.sub(r"[^a-z0-9]", "", sem_acento(nome).casefold())
+
+
+_CATEGORIAS_NORM = {chave_categoria(k): v for k, v in CATEGORIAS.items()}
+
+
+def palavras_do_nome(nome: str) -> list[str]:
+    """'RupturaDuelo' -> ['ruptura', 'duelo']; 'GameSFA' -> ['game', 'sfa']."""
+    partes = re.findall(r"[A-Z]+(?![a-z])|[A-Z]?[a-z]+|\d+", sem_acento(nome))
+    return [p.casefold() for p in partes]
+
+
+def emoji_automatico(nome: str) -> str:
+    """Escolhe o emoji de um cog pelas palavras do nome (ou 📦)."""
+    palavras = palavras_do_nome(nome)
+    for emoji, chaves in EMOJIS_POR_PALAVRA:
+        for chave in chaves:
+            for palavra in palavras:
+                if palavra == chave or (len(chave) >= 4
+                                        and palavra.startswith(chave)):
+                    return emoji
+    return EMOJI_PADRAO
+
+
+def rotulo_automatico(nome: str) -> str:
+    """'RupturaDuelo' -> 'Ruptura Duelo'; 'lore' -> 'Lore'."""
+    texto = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", " ", nome).strip()
+    return texto[:1].upper() + texto[1:] if texto else nome
 
 
 def nome_categoria(chave: str) -> tuple[str, str]:
-    """(emoji, rótulo) de uma categoria; cogs novos recebem 📦."""
-    return CATEGORIAS.get(chave, ("📦", chave))
+    """(emoji, rótulo) de uma categoria; cogs novos recebem emoji automático."""
+    conhecido = _CATEGORIAS_NORM.get(chave_categoria(chave))
+    if conhecido:
+        return conhecido
+    return emoji_automatico(chave), rotulo_automatico(chave)
+
+
+def prefixo_do_bot(bot: commands.Bot) -> str:
+    """Prefixo de texto do bot (usa 's!' se for dinâmico)."""
+    prefixo = bot.command_prefix
+    if isinstance(prefixo, str):
+        return prefixo
+    if isinstance(prefixo, (list, tuple)):
+        for item in prefixo:
+            if isinstance(item, str):
+                return item
+    return "s!"
+
+
+@dataclass
+class Entrada:
+    """Um comando listado no /help (slash, de prefixo ou os dois)."""
+    nome: str            # nome completo, sem barra
+    uso: str             # uso do slash (ou do prefixo, se for só prefixo)
+    descricao: str
+    categoria: str       # nome da classe do cog
+    prefixo: bool = False        # True = existe SÓ como comando de prefixo
+    objeto: object = None        # comando slash (ou de prefixo, se prefixo)
+    hibrido: bool = False        # True = funciona com / e com o prefixo
+    uso_prefixo: str = ""        # uso no prefixo (só nos híbridos)
+    objeto_prefixo: object = None
+    aliases: tuple = ()
+
+    @property
+    def icone(self) -> str:
+        if self.hibrido:
+            return "🔷"
+        return "▫️" if self.prefixo else "🔹"
+
+    @property
+    def tipo(self) -> str:
+        if self.hibrido:
+            return "ambos"
+        return "prefixo" if self.prefixo else "slash"
+
+
+def linha_extra(entrada: Entrada, prefixo: str) -> str:
+    """Complemento da linha do /help: versão no prefixo e atalhos."""
+    partes = []
+    if entrada.hibrido:
+        partes.append(f"também: `{prefixo}{entrada.nome}`")
+    if entrada.aliases:
+        partes.append("atalhos: " + ", ".join(
+            f"`{prefixo}{a}`" for a in entrada.aliases))
+    return " · ".join(partes)
+
+
+def _categoria_do_slash(cmd) -> str:
+    binding = getattr(cmd, "binding", None)
+    if binding is None:
+        return "Outros"
+    return getattr(binding, "qualified_name", None) or type(binding).__name__
 
 
 def coletar_entradas(bot: commands.Bot, permissoes_usuario,
                      eh_dono: bool) -> dict[str, list[Entrada]]:
     """
-    Reúne os comandos slash (incluindo subcomandos) e de prefixo que o
-    usuário pode usar, agrupados pela classe do cog.
+    Reúne os comandos que o usuário pode usar, agrupados pela classe do cog.
+    Comandos híbridos (slash + prefixo) viram UMA entrada só.
     """
     grupos: dict[str, list[Entrada]] = {}
+    por_nome: dict[tuple[str, str], Entrada] = {}
 
     for cmd in bot.tree.walk_commands():
         # Grupos aparecem pelos seus subcomandos.
@@ -388,31 +539,63 @@ def coletar_entradas(bot: commands.Bot, permissoes_usuario,
         if not comando_visivel(cmd, permissoes_usuario, eh_dono):
             continue
 
-        binding = getattr(cmd, "binding", None)
-        categoria = (getattr(binding, "qualified_name", None)
-                     or type(binding).__name__ if binding else "Outros")
-        grupos.setdefault(categoria, []).append(Entrada(
+        categoria = _categoria_do_slash(cmd)
+        entrada = Entrada(
             nome=cmd.qualified_name, uso=uso_comando(cmd),
             descricao=cmd.description or "Sem descrição.",
-            categoria=categoria, objeto=cmd))
+            categoria=categoria, objeto=cmd)
+        grupos.setdefault(categoria, []).append(entrada)
+        por_nome[(categoria, cmd.qualified_name)] = entrada
 
-    prefixo = bot.command_prefix if isinstance(bot.command_prefix, str) \
-        else "s!"
-    for cmd in bot.commands:
-        if cmd.hidden or cmd.cog_name is None:
+    prefixo = prefixo_do_bot(bot)
+    for cmd in bot.walk_commands():
+        # Grupos de prefixo aparecem pelos subcomandos.
+        if isinstance(cmd, commands.Group):
             continue
-        aliases = f" (aliases: {', '.join(cmd.aliases)})" if cmd.aliases \
-            else ""
+        if cmd.hidden or not cmd.enabled or cmd.cog_name is None:
+            continue
+        if any(pai.hidden for pai in cmd.parents):
+            continue
+
+        uso_prefixo = f"{prefixo}{cmd.qualified_name} {cmd.signature}".strip()
+        aliases = tuple(cmd.aliases)
+
+        app = (getattr(cmd, "app_command", None)
+               if isinstance(cmd, commands.HybridCommand) else None)
+        if app is not None:
+            existente = por_nome.get((cmd.cog_name, cmd.qualified_name))
+            if existente is not None:
+                existente.hibrido = True
+                existente.uso_prefixo = uso_prefixo
+                existente.objeto_prefixo = cmd
+                existente.aliases = aliases
+                continue
+            # Lado slash escondido por permissão: esconde o comando todo.
+            if not comando_visivel(app, permissoes_usuario, eh_dono):
+                continue
+            # Senão, não achei o lado slash: lista como comando de prefixo.
+
         grupos.setdefault(cmd.cog_name, []).append(Entrada(
-            nome=cmd.qualified_name,
-            uso=f"{prefixo}{cmd.qualified_name} {cmd.signature}".strip(),
-            descricao=((cmd.short_doc or cmd.brief or "Comando de prefixo.")
-                       + aliases),
-            categoria=cmd.cog_name, prefixo=True, objeto=cmd))
+            nome=cmd.qualified_name, uso=uso_prefixo,
+            descricao=cmd.short_doc or cmd.brief or "Comando de prefixo.",
+            categoria=cmd.cog_name, prefixo=True, objeto=cmd,
+            aliases=aliases))
 
     for lista in grupos.values():
-        lista.sort(key=lambda e: (e.prefixo, e.nome))
+        lista.sort(key=lambda e: (e.prefixo, sem_acento(e.nome).casefold()))
     return grupos
+
+
+def contar_comandos(bot: commands.Bot) -> tuple[int, int, int]:
+    """(só slash, só prefixo, híbridos) — híbridos contam uma vez só."""
+    slash = sum(1 for c in bot.tree.walk_commands()
+                if isinstance(c, app_commands.Command))
+    prefixo = [c for c in bot.walk_commands()
+               if not isinstance(c, commands.Group)]
+    hibridos = sum(1 for c in prefixo
+                   if isinstance(c, commands.HybridCommand)
+                   and getattr(c, "app_command", None) is not None)
+    return max(0, slash - hibridos), len(prefixo) - hibridos, hibridos
 
 
 def paginar_linhas(linhas: list[str],
@@ -513,64 +696,90 @@ class AvisosStore:
 
 class AjudaView(discord.ui.View):
     """
-    /help interativo: menu de categorias + botões ◀ ▶ para as páginas.
+    /help interativo: menu de categorias (com emoji) + botões ◀ 🏠 ▶.
     Só quem abriu o menu pode usá-lo.
     """
 
     VISAO_GERAL = "__geral__"
+    MAX_CATEGORIAS_MENU = 24     # o Discord aceita 25 opções (1 é a visão geral)
 
     def __init__(self, dono_id: int, grupos: dict[str, list[Entrada]],
-                 interaction: discord.Interaction):
+                 interaction: discord.Interaction, prefixo: str = "s!",
+                 categoria: Optional[str] = None):
         super().__init__(timeout=TIMEOUT_VIEWS)
         self.dono_id = dono_id
         self.grupos = grupos
         self.origem = interaction
-        self.categoria = self.VISAO_GERAL
+        self.prefixo = prefixo
+        self.categoria = categoria if categoria in grupos \
+            else self.VISAO_GERAL
         self.pagina = 0
+        self._paginas_atuais: list[str] = []
         self._montar()
 
     # ---------- conteúdo ----------
 
     def _chaves(self) -> list[str]:
-        """Categorias ordenadas pelo rótulo."""
-        return sorted(self.grupos, key=lambda c: nome_categoria(c)[1].lower())
+        """Categorias ordenadas pelo rótulo (sem considerar acentos)."""
+        return sorted(
+            self.grupos,
+            key=lambda c: sem_acento(nome_categoria(c)[1]).casefold())
 
     def _paginas(self) -> list[str]:
         """Páginas de texto da categoria atual."""
         linhas = []
         for e in self.grupos[self.categoria]:
-            tipo = "🔹" if not e.prefixo else "▫️"
-            linhas.append(f"{tipo} `{e.uso}`\n└ {e.descricao}")
+            texto = f"{e.icone} `{e.uso}`\n└ {e.descricao}"
+            extra = linha_extra(e, self.prefixo)
+            if extra:
+                texto += f"\n└ {extra}"
+            linhas.append(texto)
         return paginar_linhas(linhas)
 
-    def embed(self) -> discord.Embed:
-        total = sum(len(v) for v in self.grupos.values())
+    def _resumo_categorias(self) -> str:
+        """Uma linha por categoria, com exemplos de comandos."""
+        detalhado, compacto = [], []
+        for chave in self._chaves():
+            emoji, rotulo = nome_categoria(chave)
+            lista = self.grupos[chave]
+            exemplos = ", ".join(f"`{e.nome}`" for e in lista[:3])
+            mais = " …" if len(lista) > 3 else ""
+            detalhado.append(
+                f"{emoji} **{rotulo}** · {len(lista)}\n└ {exemplos}{mais}")
+            compacto.append(f"{emoji} **{rotulo}** · {len(lista)}")
+        texto = "\n".join(detalhado)
+        return texto if len(texto) <= 3000 else "\n".join(compacto)
 
+    def embed(self) -> discord.Embed:
         if self.categoria == self.VISAO_GERAL:
+            total = sum(len(v) for v in self.grupos.values())
+            cabecalho = (
+                f"Varredura concluída: **{total} comandos** em "
+                f"**{len(self.grupos)} categorias** disponíveis para você.\n"
+                "Escolha uma categoria no menu abaixo.\n"
+                "Detalhes de um comando ou categoria: "
+                "`/help comando:<nome>`\n"
+                f"Prefixo de texto: `{self.prefixo}`")
             emb = discord.Embed(
                 title="🔎 SHAGGY // COMMAND SCANNER",
-                description=(
-                    f"Varredura concluída: **{total} comandos** disponíveis "
-                    "para você.\nEscolha uma categoria no menu abaixo.\n"
-                    "Para detalhes de um comando: `/help comando:<nome>`."),
+                description=f"{cabecalho}\n\n{self._resumo_categorias()}",
                 color=discord.Color.dark_green())
-            for chave in self._chaves():
-                emoji, rotulo = nome_categoria(chave)
-                emb.add_field(
-                    name=f"{emoji} {rotulo}",
-                    value=f"{len(self.grupos[chave])} comando(s)")
-            emb.set_footer(text="🔹 comando slash · ▫️ comando de prefixo")
+            rodape = "🔹 slash · ▫️ prefixo · 🔷 os dois"
+            if len(self.grupos) > self.MAX_CATEGORIAS_MENU:
+                rodape += (f" · menu mostra {self.MAX_CATEGORIAS_MENU} de "
+                           f"{len(self.grupos)}")
+            emb.set_footer(text=rodape)
             return emb
 
         emoji, rotulo = nome_categoria(self.categoria)
-        paginas = self._paginas()
-        self.pagina = min(self.pagina, len(paginas) - 1)
+        total_paginas = len(self._paginas_atuais)
         emb = discord.Embed(
             title=f"{emoji} {rotulo}",
-            description=paginas[self.pagina],
+            description=self._paginas_atuais[self.pagina],
             color=discord.Color.dark_green())
         emb.set_footer(
-            text=f"Página {self.pagina + 1}/{len(paginas)} · "
+            text=f"Página {self.pagina + 1}/{total_paginas} · "
+                 f"{len(self.grupos[self.categoria])} comando(s) · "
                  "<obrigatório> [opcional]")
         return emb
 
@@ -579,28 +788,43 @@ class AjudaView(discord.ui.View):
     def _montar(self) -> None:
         self.clear_items()
 
+        if self.categoria == self.VISAO_GERAL:
+            self._paginas_atuais = []
+            self.pagina = 0
+        else:
+            self._paginas_atuais = self._paginas()
+            self.pagina = max(0, min(self.pagina,
+                                     len(self._paginas_atuais) - 1))
+
         opcoes = [discord.SelectOption(
             label="Visão geral", value=self.VISAO_GERAL, emoji="📖",
             default=self.categoria == self.VISAO_GERAL)]
-        for chave in self._chaves()[:24]:
+        for chave in self._chaves()[:self.MAX_CATEGORIAS_MENU]:
             emoji, rotulo = nome_categoria(chave)
             opcoes.append(discord.SelectOption(
-                label=rotulo[:100], value=chave,
+                label=rotulo[:100], value=chave, emoji=emoji,
                 description=f"{len(self.grupos[chave])} comando(s)",
                 default=chave == self.categoria))
         menu = discord.ui.Select(placeholder="Escolha uma categoria…",
-                                 options=opcoes)
+                                 options=opcoes, row=0)
         menu.callback = self._ao_escolher
         self.add_item(menu)
 
         if self.categoria != self.VISAO_GERAL:
-            total = len(self._paginas())
-            for rotulo, delta in (("◀", -1), ("▶", 1)):
-                destino = self.pagina + delta
-                botao = discord.ui.Button(
-                    label=rotulo, style=discord.ButtonStyle.secondary,
-                    disabled=not (0 <= destino < total))
-                botao.callback = self._criar_pagina(delta)
+            total = len(self._paginas_atuais)
+            anterior = discord.ui.Button(
+                label="◀", style=discord.ButtonStyle.secondary, row=1,
+                disabled=self.pagina <= 0)
+            anterior.callback = self._criar_pagina(-1)
+            inicio = discord.ui.Button(
+                label="Início", emoji="🏠", row=1,
+                style=discord.ButtonStyle.primary)
+            inicio.callback = self._ir_inicio
+            proxima = discord.ui.Button(
+                label="▶", style=discord.ButtonStyle.secondary, row=1,
+                disabled=self.pagina >= total - 1)
+            proxima.callback = self._criar_pagina(1)
+            for botao in (anterior, inicio, proxima):
                 self.add_item(botao)
 
     async def interaction_check(self, interaction: discord.Interaction):
@@ -613,6 +837,13 @@ class AjudaView(discord.ui.View):
 
     async def _ao_escolher(self, interaction: discord.Interaction):
         self.categoria = interaction.data["values"][0]
+        self.pagina = 0
+        self._montar()
+        await interaction.response.edit_message(embed=self.embed(),
+                                                view=self)
+
+    async def _ir_inicio(self, interaction: discord.Interaction):
+        self.categoria = self.VISAO_GERAL
         self.pagina = 0
         self._montar()
         await interaction.response.edit_message(embed=self.embed(),
@@ -831,7 +1062,8 @@ class Utility(commands.Cog):
         name="help",
         description="Veja os comandos do Shaggy (ou detalhes de um deles).")
     @app_commands.describe(
-        comando="Nome de um comando para ver os detalhes (opcional).")
+        comando="Nome de um comando ou categoria para ver os detalhes "
+                "(opcional).")
     async def help_shaggy(self, interaction: discord.Interaction,
                           comando: Optional[str] = None):
         await interaction.response.defer(ephemeral=True)
@@ -839,68 +1071,133 @@ class Utility(commands.Cog):
         eh_dono = await self.bot.is_owner(interaction.user)
         grupos = coletar_entradas(self.bot, interaction.permissions,
                                   eh_dono)
-
-        if comando:
-            await self._ajuda_detalhada(interaction, grupos, comando)
-            return
+        prefixo = prefixo_do_bot(self.bot)
 
         if not grupos:
             await interaction.followup.send("Nenhum comando encontrado.",
                                             ephemeral=True)
             return
 
-        view = AjudaView(interaction.user.id, grupos, interaction)
+        if comando:
+            await self._ajuda_detalhada(interaction, grupos, comando,
+                                        prefixo)
+            return
+
+        view = AjudaView(interaction.user.id, grupos, interaction, prefixo)
         await interaction.followup.send(embed=view.embed(), view=view,
                                         ephemeral=True)
 
-    async def _ajuda_detalhada(self, interaction, grupos, texto: str):
-        """Detalha um comando: uso, parâmetros, permissões e categoria."""
-        busca = texto.strip().lstrip("/").casefold()
-        busca = busca.removeprefix("s!")
+    async def _ajuda_detalhada(self, interaction, grupos, texto: str,
+                               prefixo: str):
+        """Detalha um comando (ou abre uma categoria) a partir do texto."""
+        busca = texto.strip().lstrip("/")
+        for candidato in (prefixo, "s!"):
+            if busca.casefold().startswith(candidato.casefold()):
+                busca = busca[len(candidato):]
+                break
+        alvo_txt = sem_acento(busca).casefold().strip()
 
+        # 1) Comando (pelo nome ou por um atalho).
         alvo = None
         for lista in grupos.values():
             for e in lista:
-                aliases = getattr(e.objeto, "aliases", ()) if e.prefixo \
-                    else ()
-                if busca == e.nome.casefold() or busca in aliases:
+                nomes = {sem_acento(e.nome).casefold(),
+                         *(sem_acento(a).casefold() for a in e.aliases)}
+                if alvo_txt in nomes:
                     alvo = e
                     break
             if alvo:
                 break
 
+        # 2) Categoria (pelo nome da classe ou pelo rótulo).
         if alvo is None:
+            chave_busca = chave_categoria(busca)
+            for chave in grupos:
+                _, rotulo = nome_categoria(chave)
+                if chave_busca and chave_busca in (
+                        chave_categoria(chave), chave_categoria(rotulo)):
+                    view = AjudaView(interaction.user.id, grupos,
+                                     interaction, prefixo, categoria=chave)
+                    await interaction.followup.send(
+                        embed=view.embed(), view=view, ephemeral=True)
+                    return
+
+        # 3) Nada encontrado: sugere nomes parecidos.
+        if alvo is None:
+            todos = {sem_acento(e.nome).casefold(): e.nome
+                     for lista in grupos.values() for e in lista}
+            parecidos = difflib.get_close_matches(
+                alvo_txt, list(todos), n=5, cutoff=0.5)
+            parecidos += [k for k in todos
+                          if alvo_txt and alvo_txt in k and k not in parecidos]
+            sugestoes = ", ".join(f"`{todos[k]}`" for k in parecidos[:5])
+            dica = f" Você quis dizer: {sugestoes}?" if sugestoes else ""
             await interaction.followup.send(
-                f"❌ Não encontrei o comando `{texto}`. Use `/help` para "
-                "ver a lista.", ephemeral=True)
+                f"❌ Não encontrei `{texto}`.{dica}\n"
+                "Use `/help` para ver todas as categorias.",
+                ephemeral=True)
             return
 
+        await interaction.followup.send(
+            embed=self._embed_detalhe(alvo, prefixo), ephemeral=True)
+
+    @staticmethod
+    def _embed_detalhe(alvo: Entrada, prefixo: str) -> discord.Embed:
+        """Uso, tipo, atalhos, parâmetros, permissões e cooldown."""
         emoji, rotulo = nome_categoria(alvo.categoria)
-        emb = discord.Embed(title=alvo.uso, description=alvo.descricao,
+        emb = discord.Embed(title=alvo.uso[:256], description=alvo.descricao,
                             color=discord.Color.dark_green())
         emb.add_field(name="Categoria", value=f"{emoji} {rotulo}")
-        emb.add_field(name="Tipo",
-                      value="Prefixo" if alvo.prefixo else "Slash")
+        emb.add_field(name="Tipo", value={
+            "slash": "🔹 Slash", "prefixo": "▫️ Prefixo",
+            "ambos": "🔷 Slash e prefixo"}[alvo.tipo])
+
+        if alvo.hibrido:
+            emb.add_field(name="No prefixo", value=f"`{alvo.uso_prefixo}`",
+                          inline=False)
+        if alvo.aliases:
+            emb.add_field(
+                name="Atalhos",
+                value=", ".join(f"`{prefixo}{a}`" for a in alvo.aliases),
+                inline=False)
 
         if not alvo.prefixo:
-            parametros = [
-                f"`{getattr(p, 'display_name', p.name)}` "
-                f"({'obrigatório' if p.required else 'opcional'}): "
-                f"{p.description or '—'}"
-                for p in getattr(alvo.objeto, "parameters", [])]
-            if parametros:
-                emb.add_field(name="Parâmetros",
-                              value="\n".join(parametros)[:1024],
-                              inline=False)
-
+            parametros = []
+            for p in getattr(alvo.objeto, "parameters", []):
+                linha = (f"`{getattr(p, 'display_name', p.name)}` "
+                         f"({'obrigatório' if p.required else 'opcional'}): "
+                         f"{p.description or '—'}")
+                opcoes = getattr(p, "choices", None)
+                if opcoes:
+                    linha += " · opções: " + ", ".join(
+                        f"`{c.name}`" for c in opcoes[:6])
+                parametros.append(linha)
             exigidas, dono = requisitos_comando(alvo.objeto)
             reqs = [PERMISSOES_PT.get(p, p) for p in exigidas]
             if dono:
                 reqs.append("dono do bot")
-            if reqs:
-                emb.add_field(name="Requer", value=", ".join(reqs),
-                              inline=False)
-        await interaction.followup.send(embed=emb, ephemeral=True)
+        else:
+            parametros = [
+                f"`{nome}` ({'obrigatório' if p.default is p.empty else 'opcional'})"
+                for nome, p in getattr(alvo.objeto, "clean_params",
+                                       {}).items()]
+            reqs = []
+
+        if parametros:
+            emb.add_field(name="Parâmetros",
+                          value="\n".join(parametros)[:1024], inline=False)
+        if reqs:
+            emb.add_field(name="Requer", value=", ".join(reqs),
+                          inline=False)
+
+        comando_prefixo = alvo.objeto_prefixo if alvo.hibrido else (
+            alvo.objeto if alvo.prefixo else None)
+        cooldown = getattr(comando_prefixo, "cooldown", None)
+        if cooldown is not None:
+            emb.add_field(
+                name="Cooldown",
+                value=f"{cooldown.rate} uso(s) a cada {cooldown.per:g}s")
+        return emb
 
     @help_shaggy.autocomplete("comando")
     async def _ac_help(self, interaction: discord.Interaction,
@@ -908,10 +1205,26 @@ class Utility(commands.Cog):
         eh_dono = await self.bot.is_owner(interaction.user)
         grupos = coletar_entradas(self.bot, interaction.permissions,
                                   eh_dono)
-        termo = current.strip().lstrip("/").casefold()
-        nomes = sorted({e.nome for lista in grupos.values()
-                        for e in lista if termo in e.nome.casefold()})
-        return [app_commands.Choice(name=n, value=n) for n in nomes[:25]]
+        termo = sem_acento(current).strip().lstrip("/").casefold()
+
+        comandos = sorted({e.nome for lista in grupos.values()
+                           for e in lista
+                           if termo in sem_acento(e.nome).casefold()})
+        opcoes = [app_commands.Choice(name=n[:100], value=n[:100])
+                  for n in comandos]
+
+        categorias = []
+        for chave in sorted(grupos, key=lambda c: sem_acento(
+                nome_categoria(c)[1]).casefold()):
+            emoji, rotulo = nome_categoria(chave)
+            if termo in sem_acento(rotulo).casefold():
+                categorias.append(app_commands.Choice(
+                    name=f"{emoji} {rotulo} (categoria)"[:100],
+                    value=rotulo[:100]))
+
+        # Sem texto, as categorias vêm primeiro; digitando, os comandos.
+        combinado = categorias + opcoes if not termo else opcoes + categorias
+        return combinado[:25]
 
     @app_commands.command(
         name="ping", description="Teste de latência do Shaggy.")
@@ -978,8 +1291,7 @@ class Utility(commands.Cog):
         gateway = bot.latency
         gateway_ms = gateway * 1000 if math.isfinite(gateway) else None
 
-        slash = sum(1 for c in bot.tree.walk_commands()
-                    if isinstance(c, app_commands.Command))
+        so_slash, so_prefixo, hibridos = contar_comandos(bot)
         usuarios = sum(g.member_count or 0 for g in bot.guilds)
         canais = sum(len(g.channels) for g in bot.guilds)
 
@@ -997,8 +1309,11 @@ class Utility(commands.Cog):
         emb.add_field(name="Servidores", value=f"{len(bot.guilds):,}")
         emb.add_field(name="Membros (soma)", value=f"{usuarios:,}")
         emb.add_field(name="Canais", value=f"{canais:,}")
-        emb.add_field(name="Comandos",
-                      value=f"{slash} slash · {len(bot.commands)} prefixo")
+        emb.add_field(
+            name="Comandos",
+            value=(f"{so_slash + so_prefixo + hibridos} "
+                   f"({so_slash} slash · {so_prefixo} prefixo · "
+                   f"{hibridos} híbridos)"))
         emb.add_field(
             name=rotulo_memoria,
             value=f"{memoria:.1f} MB" if memoria is not None else "—")
