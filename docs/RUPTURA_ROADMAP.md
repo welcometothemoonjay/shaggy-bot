@@ -26,6 +26,7 @@ alterar balanceamento, recompensas ou esquema de dados nesta fase.
 | BUG-02 | Finalização de runs no unload | Bugs | P0 | Média |
 | BUG-03 | Reconciliação de recompensas | Bugs | P0 | Média |
 | BUG-04 | Chave de run por guild | Bugs | P1 | Média |
+| BUG-05 | Liberação de estado PvP em falha de interação | Bugs | P1 | Baixa |
 | CMB-01 | Leitura tática do turno | Combate | P1 | Baixa |
 | CMB-02 | Resumo de status e efeitos | Combate | P1 | Baixa |
 | CMB-03 | Log de combate reproduzível | Combate | P2 | Média |
@@ -59,6 +60,8 @@ alterar balanceamento, recompensas ou esquema de dados nesta fase.
 
 - **Concluído em 26/10/2026:** BUG-01 — guarda única de estado PvE/PvP, com
   `estado_jogador_ocupado()` compartilhado e cobertura automatizada nos dois sentidos.
+- **Concluído em 26/10/2026:** BUG-05 — liberação de `ocupados` quando a abertura da
+  escolha de classe ou a confirmação do duelo falha, com testes de regressão.
 - **Em andamento:** nenhum item.
 - **Próximo recomendado:** BUG-02 — finalização de runs no unload.
 - **Pendentes:** todas as demais propostas desta lista.
@@ -135,6 +138,28 @@ alterar balanceamento, recompensas ou esquema de dados nesta fase.
 - **Prioridade:** P1.
 - **Critério de aceitação:** comportamento documentado e testado para dois guilds; nenhuma
   colisão de locks.
+
+### BUG-05 — Liberação de estado PvP em falha de interação
+
+**Status:** concluído em 26/10/2026.
+
+- **Problema/oportunidade:** `ConviteDuelo.aceitar` reservava o desafiado e depois editava
+  a mensagem; `EscolhaClasse.escolher` marcava `iniciando` e chamava `stop()` antes de
+  `interaction.response.defer()`. Uma exceção nesses pontos deixava os dois jogadores em
+  `RupturaDuelo.ocupados` para sempre, bloqueando PvE e PvP até reiniciar o bot.
+- **Solução:** liberar os dois jogadores quando a tela de escolha não pode ser aberta e
+  quando a confirmação da escolha falha antes de `iniciar_duelo()`; a falha de
+  `original_response()` apenas é registrada, pois a tela já está ativa e tem timeout.
+- **Impacto:** elimina bloqueio permanente causado por erro de rede/HTTP ou interação
+  expirada, sem mexer nas regras do duelo.
+- **Complexidade:** Baixa.
+- **Dependências:** `ConviteDuelo`, `EscolhaClasse`, `RupturaDuelo.liberar`.
+- **Riscos:** liberar cedo demais e permitir duelo duplicado; o fluxo só libera quando a
+  tela/confirmação não foi efetivada.
+- **Prioridade:** P1.
+- **Critério de aceitação:** teste com falha simulada em `edit_message` e em `defer`
+  confirma que `ocupados` volta a ficar vazio; o teste de concorrência confirma que duas
+  `iniciar_run()` simultâneas criam uma única run.
 
 ---
 

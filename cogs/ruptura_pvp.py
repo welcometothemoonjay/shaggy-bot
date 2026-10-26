@@ -755,9 +755,28 @@ class ConviteDuelo(discord.ui.View):
         self.cog.ocupados.add(self.desafiado.id)
         self.stop()
         tela = EscolhaClasse(self.cog, self.desafiante, self.desafiado)
-        await interaction.response.edit_message(
-            content=None, embed=tela.embed(), view=tela)
-        tela.message = await interaction.original_response()
+        try:
+            await interaction.response.edit_message(
+                content=None, embed=tela.embed(), view=tela)
+        except Exception:
+            # Sem a tela, o duelo não começou: não deixe os dois presos.
+            self.cog.liberar(self.desafiante.id, self.desafiado.id)
+            log.exception(
+                "Falha ao abrir a escolha de classe do duelo (%s x %s).",
+                self.desafiante.id, self.desafiado.id)
+            try:
+                await interaction.followup.send(
+                    "❌ Não consegui iniciar o duelo. Tente novamente.",
+                    ephemeral=True)
+            except Exception:
+                pass
+            return
+        try:
+            tela.message = await interaction.original_response()
+        except Exception:
+            # A tela já está ativa e tem timeout próprio; apenas registre.
+            log.exception(
+                "Não consegui obter a mensagem da escolha de classe do duelo.")
 
     @discord.ui.button(label="Recusar", style=discord.ButtonStyle.danger,
                        emoji="✖️")
@@ -871,7 +890,16 @@ class EscolhaClasse(discord.ui.View):
                 return
             self.iniciando = True
 
-        await interaction.response.defer()
+        try:
+            await interaction.response.defer()
+        except Exception:
+            # O `stop()` abaixo impediria o timeout de liberar os jogadores.
+            self.stop()
+            self.cog.liberar(self.p1.id, self.p2.id)
+            log.exception(
+                "Falha ao confirmar a escolha de classe do duelo (%s x %s).",
+                self.p1.id, self.p2.id)
+            return
         self.stop()
         await self.cog.iniciar_duelo(
             interaction, self.p1, self.p2,

@@ -1,17 +1,20 @@
 # Auditoria Técnica — Shaggy Bot
 
 **Data:** 26 de outubro de 2026
-**Commit de referência:** `9cb5c19` (`Mercado e nova mecanica para inimigos`) + alterações
-locais de BUG-01 ainda não commitadas
+**Commit de referência:** `27c2c90` (`Paths 1.1v(Bug & resolve)`), que contém BUG-01;
+as alterações de BUG-05 ainda não estão commitadas
 **Ambiente:** Linux, Python 3.14, `discord.py` 2.7.1, `openai` 3.37.0, SQLite local
 **Escopo:** arquitetura, Cogs, persistência, integrações, Ruptura Temporal, testes e
 documentação. A auditoria original **não** alterou balanceamento, esquema do banco ou
-código de produção. A atualização posterior implementou apenas BUG-01 (integração
-PvE/PvP), sem mudar dados ou balanceamento.
+código de produção. As atualizações posteriores implementaram apenas BUG-01 (integração
+PvE/PvP) e BUG-05 (liberação de estado em falha de interação), sem mudar dados ou
+balanceamento.
 
 > **Atualização de 26/10/2026:** o problema P-02 foi corrigido com uma guarda
-> compartilhada entre PvE e PvP. A suíte passou de 66 para 70 testes. Os demais achados
-> continuam como estavam na auditoria original.
+> compartilhada entre PvE e PvP. A validação da concorrência confirmou que a reserva de
+> estado é atômica no event loop. Na mesma rodada, o problema P-11 (vazamento de
+> `ocupados` em falha de interação no PvP) foi corrigido. A suíte passou de 66 para 74
+> testes. Os demais achados continuam como estavam na auditoria original.
 
 ---
 
@@ -20,7 +23,7 @@ PvE/PvP), sem mudar dados ou balanceamento.
 O projeto está funcional e tem uma base acima da média para um bot de Discord: economia
 centralizada, transações SQLite explícitas nos fluxos de dinheiro, boa separação entre
 regras e interface na Ruptura, validadores de catálogo e uma suíte automatizada real
-(70 testes) para o sistema mais complexo.
+(74 testes) para o sistema mais complexo.
 
 Os principais achados são de **integração e ciclo de vida**, não de “jogo quebrado”:
 
@@ -54,15 +57,16 @@ grandes de conteúdo.
 ## 2. Método e evidências
 
 Foram executadas apenas operações de leitura, compilação e testes na auditoria original.
-A implementação posterior de BUG-01 alterou código de produção e ampliou a suíte; as
-validações dessa alteração estão registradas no fim desta seção e na seção 11.
+A implementação posterior de BUG-01 e BUG-05 alterou código de produção e ampliou a
+suíte; as validações dessas alterações estão registradas no fim desta seção e na seção 11.
 
 | Verificação | Comando | Resultado |
 | --- | --- | --- |
 | Compilação | `.venv/bin/python -m py_compile main.py cogs/*.py test_ruptura.py` | OK |
 | Importação dos Cogs | importação programática dos 17 módulos | 17/17 OK |
-| Suíte principal | `.venv/bin/python -m unittest test_ruptura -v` | 70 testes, OK |
-| Descoberta | `.venv/bin/python -m unittest discover -v` | 70 testes, OK |
+| Suíte principal | `.venv/bin/python -m unittest test_ruptura -v` | 74 testes, OK |
+| Descoberta | `.venv/bin/python -m unittest discover -v` | 74 testes, OK |
+| Corrida PvE/PvP | duas `iniciar_run()` com `asyncio.gather` | 1 run criada, 1 bloqueada |
 | Catálogo | `validar_catalogos()` | sem erro |
 | Árvores | `validar_arvores()` | `[]` |
 | Eventos | `validar_eventos()` | `[]` |
@@ -82,13 +86,13 @@ inspecionados para conferir a configuração documentada.
 
 | Arquivo | Linhas |
 | --- | ---: |
-| `cogs/ruptura.py` | 8.063 |
+| `cogs/ruptura.py` | 8.107 |
 | `cogs/noticias_ia.py` | 3.101 |
 | `cogs/cassino.py` | 2.405 |
 | `cogs/badges.py` | 2.313 |
 | `cogs/ultility.py` | 2.203 |
 | `cogs/pet.py` | 1.525 |
-| `cogs/ruptura_pvp.py` | 1.322 |
+| `cogs/ruptura_pvp.py` | 1.353 |
 | `cogs/games.py` | 1.173 |
 | `test_ruptura.py` | 1.112 |
 | `cogs/XpAndCoins.py` | 1.088 |
@@ -227,7 +231,7 @@ A avaliação detalhada e comparativa está em [`COGS_REVIEW.md`](COGS_REVIEW.md
 - **`XpAndCoins`** — núcleo estável e transacional; principal risco é o SQLite síncrono no
   caminho de XP e a ausência de reconciliação de recompensas.
 - **`ruptura`** — sistema mais rico e mais crítico; funciona, mas concentra motor, dados e
-  UI em 8.063 linhas e descarta runs no unload.
+  UI em 8.107 linhas e descarta runs no unload.
 - **`ruptura_pvp`** — reutiliza bem o motor; falha na reciprocidade da guarda de estado com
   o PvE.
 - **`ruptura_extras`** — ranking e IA funcionam; falta separar repositório, integração e
@@ -402,13 +406,34 @@ falhas para reprocessamento; no mínimo, informar claramente o jogador em todos 
 **Critério de aceitação:** falha de economia não é silenciosa e existe caminho de
 reconciliação.
 
+### P-11 — Vazamento de `ocupados` em falha de interação no PvP (alta) — **resolvido**
+
+**Evidência histórica:** `ConviteDuelo.aceitar` adicionava o desafiado a
+`RupturaDuelo.ocupados` e chamava `stop()` antes de `interaction.response.edit_message`.
+Se a edição falhasse, a exceção escapava e os dois jogadores permaneciam ocupados.
+`EscolhaClasse.escolher` marcava `iniciando = True` e chamava `stop()` antes de
+`interaction.response.defer()`; uma falha no defer impedia o `on_timeout` de liberar os
+jogadores. Reproduzido com falha simulada: `ocupados` ficava `{7, 8}` nos dois casos.
+
+**Efeito:** bloqueio permanente de PvE e PvP para os dois jogadores, sem comando de
+recuperação, até reiniciar o bot.
+
+**Correção aplicada em 26/10/2026 (BUG-05):** `cogs/ruptura_pvp.py` libera os dois
+jogadores quando a tela de escolha não pode ser aberta e quando a confirmação falha antes
+de `iniciar_duelo()`; a falha ao obter `original_response()` apenas é registrada, pois a
+tela já está ativa e tem timeout. Coberto por `TestLiberacaoEstadoPvP` em
+`test_ruptura.py`.
+
+**Critério de aceitação:** `ocupados` volta a ficar vazio após falha simulada; o duelo não
+é iniciado quando a confirmação falha.
+
 ---
 
 ## 7. Dívida técnica
 
 ### D-01 — Monólito `ruptura.py`
 
-8.063 linhas concentram catálogo, efeitos, combate, eventos, itens, mercado, build,
+8.107 linhas concentram catálogo, efeitos, combate, eventos, itens, mercado, build,
 persistência e UI. A separação lógica existe por seções, mas não física. Isso aumenta o
 custo de revisão, o tempo de importação e o risco de conflitos.
 
@@ -506,6 +531,7 @@ de verdade.
 | R-10 | Dependência de IA/RSS indisponível | Média | Baixo/Médio | Já há tratamento; manter mensagens claras |
 | R-11 | Permissões/hierarquia de cargos no Discord | Média | Médio | Fila persistente já existe; testar em servidor real |
 | R-12 | Vazamento de segredos em commits | Baixa | Alto | `.gitignore` cobre `.env`; revisar antes de push |
+| R-13 | `ocupados` preso após falha de interação (P-11) | Baixa | Alto | Liberação em falha e testes aplicados em BUG-05 |
 
 ### Integridade dos dados
 
@@ -531,7 +557,7 @@ de verdade.
 - Mercador e forja integrados à economia com compra atômica.
 - PvP reutiliza o motor sem consumir itens por padrão.
 - Testes cobrem catálogo, itens, inventário, mercado, combate tático, PvP, guarda de
-  estado PvE/PvP e embeds.
+  estado PvE/PvP, liberação de estado em falha de interação e embeds.
 
 ### Pontos fracos
 
@@ -612,7 +638,7 @@ ajudar a reduzir o monólito sem aumentar a superfície de comandos.
 
 ```text
 $ .venv/bin/python -m unittest test_ruptura -v
-Ran 70 tests in 0.280s
+Ran 74 tests in 0.270s
 OK
 ```
 
@@ -628,6 +654,8 @@ Classes de teste em `test_ruptura.py`:
 - `TestCombateTatico` — telegrafia, interrupção, adaptação, isolamento e expiração.
 - `TestPvP` — filtro de itens e compatibilidade.
 - `TestGuardaPvEPvP` — exclusividade de estado entre PvE e PvP nos dois sentidos.
+- `TestLiberacaoEstadoPvP` — liberação de `ocupados` em falhas de interação e reserva
+  atômica de duas runs concorrentes.
 - `TestEmbeds` — conteúdo e limites de embed.
 
 Nenhum teste usa o banco real: os testes de persistência patcham `DB_PATH` para um

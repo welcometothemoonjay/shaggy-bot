@@ -2,6 +2,41 @@
 
 Todas as mudanças relevantes do projeto serão registradas neste arquivo.
 
+## [26/10/2026] — Ruptura Temporal: liberação de estado PvP em falhas de interação
+
+### 🐛 Corrigido
+
+- **Jogadores presos em `RupturaDuelo.ocupados` (BUG-05):** falhas ao abrir a tela de
+  escolha de classe ou ao confirmar a escolha deixavam os dois jogadores bloqueados para
+  PvE e PvP até reiniciar o bot.
+- **Aceite do convite:** se `interaction.response.edit_message` falhar, o desafiado e o
+  desafiante são liberados e o duelo não começa.
+- **Confirmação da escolha:** se `interaction.response.defer` falhar depois de `stop()`,
+  os dois jogadores são liberados; o timeout não conseguiria mais fazer isso.
+
+### 🔧 Melhorias
+
+- **Falha ao obter `original_response()`** apenas é registrada, pois a tela já está ativa
+  e possui timeout próprio — liberar nesse ponto permitiria um duelo sobreposto.
+- **`TestLiberacaoEstadoPvP`** cobre as duas falhas simuladas e a reserva atômica de duas
+  `iniciar_run()` concorrentes.
+- **`test_ruptura.py` ampliado para 74 testes.**
+
+### 🛡️ Compatibilidade
+
+- Nenhuma mudança em `data/shaggy.db`, `.env`, `main.py`, `cogs/XpAndCoins.py`, regras,
+  recompensas, balanceamento ou comandos.
+- Fluxos normais de convite, aceite, escolha, duelo e encerramento preservados.
+
+### 🧪 Validação
+
+- `.venv/bin/python -m unittest test_ruptura -v` (74 testes)
+- `.venv/bin/python -m unittest discover -v` (74 testes)
+- `.venv/bin/python -m py_compile cogs/ruptura.py cogs/ruptura_pvp.py test_ruptura.py`
+- `git diff --check`
+
+---
+
 ## [26/10/2026] — Ruptura Temporal: guarda única de estado PvE/PvP
 
 ### 🐛 Corrigido
@@ -19,8 +54,8 @@ Todas as mudanças relevantes do projeto serão registradas neste arquivo.
 
 - **`estado_jogador_ocupado()`** centraliza a leitura de `runs_ativas` e `ocupados`.
 - **`RupturaDuelo.motivo_indisponivel()`** passou a usar a mesma guarda compartilhada.
-- **`test_ruptura.py` ampliado para 70 testes**, com cobertura dos dois sentidos da
-  exclusividade PvE/PvP e da janela de `iniciar_run()`.
+- **`test_ruptura.py` ampliado para 70 testes na etapa do BUG-01**, com cobertura dos
+  dois sentidos da exclusividade PvE/PvP e da janela de `iniciar_run()`.
 
 ### 🛡️ Compatibilidade
 
@@ -30,7 +65,7 @@ Todas as mudanças relevantes do projeto serão registradas neste arquivo.
 
 ### 🧪 Validação
 
-- `.venv/bin/python -m unittest test_ruptura -v` (70 testes)
+- `.venv/bin/python -m unittest test_ruptura -v` (70 testes na etapa; 74 após o BUG-05)
 - `.venv/bin/python -m py_compile cogs/ruptura.py cogs/ruptura_pvp.py test_ruptura.py`
 - `git diff --check`
 

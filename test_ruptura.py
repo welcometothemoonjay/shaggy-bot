@@ -1167,6 +1167,118 @@ class TestGuardaPvEPvP(unittest.TestCase):
         self.assertEqual(cog.ocupados, set())
 
 
+class TestLiberacaoEstadoPvP(unittest.TestCase):
+    """Falhas de interação não podem deixar jogadores presos em `ocupados`."""
+
+    @staticmethod
+    def membro(uid: int):
+        return SimpleNamespace(id=uid, display_name=f"Jogador {uid}",
+                               mention=f"<@{uid}>")
+
+    def test_aceitar_libera_jogadores_quando_falha_ao_editar(self):
+        bot = SimpleNamespace(
+            get_cog=lambda nome: SimpleNamespace(runs_ativas={})
+            if nome == "RupturaTemporal" else None)
+        cog = object.__new__(pvp.RupturaDuelo)
+        cog.bot = bot
+        cog.ocupados = {7}
+        view = pvp.ConviteDuelo(cog, self.membro(7), self.membro(8))
+        interaction = SimpleNamespace(
+            user=self.membro(8),
+            response=SimpleNamespace(
+                edit_message=AsyncMock(side_effect=RuntimeError("boom")),
+                send_message=AsyncMock()),
+            followup=SimpleNamespace(send=AsyncMock()),
+            original_response=AsyncMock(),
+        )
+
+        with self.assertLogs("shaggy.ruptura.pvp", level="ERROR"):
+            asyncio.run(view.aceitar.callback(interaction))
+
+        self.assertEqual(cog.ocupados, set())
+        self.assertTrue(view.resolvido)
+        interaction.followup.send.assert_awaited_once()
+
+    def test_aceitar_reserva_alvo_e_abre_escolha(self):
+        bot = SimpleNamespace(
+            get_cog=lambda nome: SimpleNamespace(runs_ativas={})
+            if nome == "RupturaTemporal" else None)
+        cog = object.__new__(pvp.RupturaDuelo)
+        cog.bot = bot
+        cog.ocupados = {7}
+        view = pvp.ConviteDuelo(cog, self.membro(7), self.membro(8))
+        interaction = SimpleNamespace(
+            user=self.membro(8),
+            response=SimpleNamespace(
+                edit_message=AsyncMock(), send_message=AsyncMock()),
+            followup=SimpleNamespace(send=AsyncMock()),
+            original_response=AsyncMock(),
+        )
+
+        asyncio.run(view.aceitar.callback(interaction))
+
+        self.assertEqual(cog.ocupados, {7, 8})
+        self.assertTrue(view.resolvido)
+        interaction.response.edit_message.assert_awaited_once()
+
+    def test_escolher_libera_jogadores_quando_defer_falha(self):
+        cog = object.__new__(pvp.RupturaDuelo)
+        cog.bot = SimpleNamespace(get_cog=lambda nome: None)
+        cog.ocupados = {7, 8}
+        cog.iniciar_duelo = AsyncMock()
+        view = pvp.EscolhaClasse(cog, self.membro(7), self.membro(8))
+        view.picks[7] = "guardiao"
+        interaction = SimpleNamespace(
+            user=self.membro(8),
+            response=SimpleNamespace(
+                defer=AsyncMock(side_effect=RuntimeError("boom")),
+                send_message=AsyncMock()),
+            message=SimpleNamespace(edit=AsyncMock()),
+        )
+
+        with self.assertLogs("shaggy.ruptura.pvp", level="ERROR"):
+            asyncio.run(view.escolher(interaction, "guardiao"))
+
+        self.assertEqual(cog.ocupados, set())
+        cog.iniciar_duelo.assert_not_awaited()
+
+    def test_dois_iniciar_run_concorrentes_criam_uma_run(self):
+        cogs = {
+            "RupturaTemporal": SimpleNamespace(runs_ativas={}),
+            "RupturaDuelo": SimpleNamespace(ocupados=set()),
+        }
+        bot = SimpleNamespace(get_cog=lambda nome: cogs.get(nome))
+        cog = object.__new__(rt.RupturaTemporal)
+        cog.bot = bot
+        cog.runs_ativas = cogs["RupturaTemporal"].runs_ativas
+        cog.equipar_itens_passivos = AsyncMock()
+        cog.carregar_build_run = AsyncMock()
+        eventos = []
+
+        async def tentar():
+            interaction = SimpleNamespace(
+                user=SimpleNamespace(id=7, display_name="Teste"),
+                guild_id=2,
+                response=SimpleNamespace(
+                    send_message=AsyncMock(
+                        side_effect=lambda *a, **k: eventos.append(
+                            "bloqueado")),
+                    edit_message=AsyncMock(
+                        side_effect=lambda *a, **k: eventos.append("criado")),
+                ),
+                original_response=AsyncMock(),
+            )
+            await cog.iniciar_run(interaction, rt.CLASSES["guardiao"])
+
+        async def cenario():
+            await asyncio.gather(tentar(), tentar())
+
+        asyncio.run(cenario())
+
+        self.assertEqual(sorted(eventos), ["bloqueado", "criado"])
+        self.assertEqual(list(cog.runs_ativas), [7])
+
+
 class TestEmbeds(unittest.TestCase):
     def test_embeds_da_expansao(self):
         mercado = rt.criar_embed_mercado()
