@@ -38,6 +38,58 @@ Imagine encontrar criaturas medievais, seres futuristas, artefatos desconhecidos
 
 A Ruptura Temporal foi concebida para permitir a expansão de conteúdo, com novas possibilidades de builds, itens, encontros e desafios.
 
+**Como jogar**
+
+- `s!ruptura` (ou `s!rt`) inicia uma run com uma classe e uma passiva exclusivas.
+- `s!market` abre o mercado; `s!market comprar CHAVE quantidade` compra um item.
+- `s!inventario` mostra passivos, artefatos, consumíveis e estratégicos guardados.
+- `/build` gasta Abysmus na especialização e nos nós da classe.
+- Durante o combate, use **Atacar**, **Guardar**, **Concentrar**, a **Técnica** da classe, as habilidades ativas da build, a **Mochila** de combate e o botão de **Evento** quando uma escolha estiver disponível.
+- Antes de um **chefe** ou **deus**, um **mercador** aparece com consumíveis, estratégicos, artefatos e aprimoramentos de forja.
+
+**Conteúdo atual**
+
+- **10 classes**, **30 especializações** e **12 relíquias**.
+- **55 criaturas**: 35 base, **18 novas** (6 por era) e **2 sazonais exclusivas**, cada uma com habilidade própria.
+- **32 habilidades de criatura**, incluindo as **20 habilidades exclusivas** das criaturas novas.
+- **27 itens** no mercado:
+  - **9 passivos** de build (ataque, defesa, vida, barreira, crítico e foco);
+  - **5 artefatos** com efeitos especiais durante a run;
+  - **8 consumíveis** de combate (cura, Foco, dano, status e defesa);
+  - **5 itens estratégicos** com **1 uso por run** (fumaça, distorção, pacto, isca e selo).
+- **12 eventos**: 3 base, 2 sazonais clássicos (Halloween e Natal), **4 sazonais novos** (Equinócio de Cinzas, Solstício Rachado, Colheita de Ecos e Semana dos Mortos) e **3 dinâmicos com escolhas**.
+
+**Combate tático**
+
+- Chefes e deuses podem usar **Golpe Pesado** (telegrafado, +55% de dano se não for interrompido), **Postura Defensiva** (reduz o próximo golpe recebido pela metade) e **Contra-Golpe** (+30%).
+- A intenção do inimigo aparece no embed. **Guardar** ou **atordoar** interrompe uma ação telegrafada e cancela o dano.
+- Cada chefe observa as últimas ações do jogador dentro do combate. Após **3 observações** com pelo menos **60%** do mesmo padrão, ele se adapta **uma única vez**.
+- A memória é isolada por criatura, run e jogador; nenhuma tabela nova é criada e criaturas comuns mantêm o golpe básico.
+
+**Mercador e forja**
+
+- O mercador surge **depois da vitória**, quando o próximo encontro é **chefe** ou **deus** — nunca antes de mini-chefe.
+- A vitrine traz **2 consumíveis**, **2 estratégicos**, **até 1 artefato** ainda não equipado e **3 ofertas de forja**.
+- Consumíveis e estratégicos vão para o inventário persistente e para a mochila da run. Artefatos valem **somente nesta run** e são aplicados na compra.
+- A forja permite **2 aprimoramentos por run**, com teto de **+2 ataque**, **+2 defesa** ou **+20 vida máxima**. Cada uso custa +4 Abysmus em relação ao anterior.
+- Toda compra é atômica: o débito de Abysmus e a entrega/efeito usam a mesma transação da economia.
+
+**Regras dos itens**
+
+- Passivos e artefatos são equipados automaticamente no início da run e consumidos do inventário, respeitando o limite por item.
+- Consumíveis e estratégicos entram na mochila de combate da run; **usar um item gasta a ação do turno** e o item é consumido.
+- Estratégicos só podem ser usados **1 vez por run**.
+- O **PvP** usa apenas passivos e artefatos; consumíveis e estratégicos ficam fora do duelo.
+- As janelas sazonais não alteram a dificuldade global: fora delas, o evento simplesmente não entra no sorteio.
+
+**Validação local**
+
+```bash
+python -m unittest test_ruptura -v
+```
+
+A suíte cobre catálogo, combate tático, preparação/interrupção/resolução, expiração de efeitos, adaptação e isolamento de chefes, mercador, forja, compras atômicas, concorrência e compatibilidade com o PvP. Os testes usam um banco temporário e não tocam em `data/shaggy.db`.
+
 ### 🌲 Segredo Floresta Adentro — SFA
 
 Um universo de fantasia sombria e horror cósmico que inspira parte das experiências de RPG do projeto.

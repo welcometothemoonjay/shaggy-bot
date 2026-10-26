@@ -2,6 +2,83 @@
 
 Todas as mudanças relevantes do projeto serão registradas neste arquivo.
 
+## [26/10/2026] — Ruptura Temporal: combate tático, mercador e chefes adaptativos
+
+### ✨ Adicionado
+
+- **Ações táticas de chefe**: Golpe Pesado telegrafado (+55% se não interrompido), Postura Defensiva (reduz o próximo golpe pela metade) e Contra-Golpe (+30%).
+- **Interrupção tática**: Guardar ou atordoar cancela uma ação telegrafada antes da resolução, sem dano.
+- **Intenção telegrafada** no embed de combate, com aviso de como interromper a ação.
+- **Mercador do Intervalo** antes de chefe/deus (nunca antes de mini-chefe), com consumíveis, estratégicos, artefatos e forja.
+- **Forja vinculada à run**: até 2 aprimoramentos, com teto de +2 ataque, +2 defesa ou +20 vida máxima e custo crescente em Abysmus.
+- **Chefes adaptativos**: após 3 observações com pelo menos 60% do mesmo padrão, o chefe responde uma única vez com a ação correspondente.
+- **`test_ruptura.py` ampliado para 66 testes**, cobrindo combate tático, expiração, mercador, compras atômicas, concorrência e isolamento de memória.
+
+### 🔧 Melhorias
+
+- **`HabilidadeInimiga.escolher_acao()`** permite decisões táticas sem alterar as habilidades existentes; criaturas comuns continuam com o golpe básico.
+- **`criar_inimigo()` e `preparar_combate()`** reaproveitam a categoria já sorteada, evitando duplo sorteio de deus entre o mercador e o encontro.
+- **`s!market comprar`** passou a usar `MercadoRepo`: débito e entrega do item ocorrem na mesma transação, com trava por membro.
+- **Helpers `guardar_item_tx()`/`consumir_item_tx()`** permitem compras atômicas dentro da transação oficial de Abysmus.
+
+### 🛡️ Compatibilidade
+
+- Nenhuma mudança em `data/shaggy.db`, no `.env`, no `main.py` ou no `cogs/XpAndCoins.py`.
+- Nenhuma alteração nas chances de encontro, escalas de criatura, recompensas ou atributos das classes.
+- Chefes, deuses e mini-chefes mantêm imunidades e limites existentes; o PvP continua usando apenas passivos e artefatos.
+- A memória tática fica em `EnemyState`, sem tabela nova, e é isolada por criatura, run e jogador.
+
+### 🧪 Validação
+
+- `python -m py_compile cogs/ruptura.py cogs/ruptura_pvp.py test_ruptura.py`
+- `python -m unittest test_ruptura -v` (66 testes)
+- `validar_catalogos()` e `validar_arvores()` sem erros.
+
+---
+
+## [26/10/2026] — Ruptura Temporal: expansão de bestiário, itens e eventos
+
+### ✨ Adicionado
+
+- **20 criaturas novas** no bestiário de Ruptura Temporal:
+  - **18 normais**, sendo **6 por era** (Da'kor, Era a Vapor e Futuro Distorcido);
+  - **2 sazonais exclusivas**: Cavaleiro da Última Colheita (Colheita de Ecos) e Noiva de Cinzas (Semana dos Mortos).
+- **20 habilidades exclusivas de criatura**, uma para cada criatura nova, com mecânicas próprias (pressão crescente, roubo de Foco, marca paradoxal, reflexo de vidro etc.).
+- **Mercado ampliado para 27 itens**, agora com quatro tipos:
+  - **9 passivos** de build já existentes/reorganizados;
+  - **5 artefatos** equipados no início da run: Olho de Vidro, Manto de Névoa, Coração de Cristal, Sinete do Carrasco e Relógio Quebrado;
+  - **8 consumíveis** de combate: Poção de Vida, Poção de Foco, Bomba de Fuligem, Óleo Pegajoso, Veneno do Véu, Escudo de Campanha, Kit de Emergência e Lâmina de Aluguel;
+  - **5 itens estratégicos** com 1 uso por run: Bomba de Fumaça, Distorção Temporal, Pacto de Sangue, Isca de Carne e Selo de Silêncio.
+- **Mochila de combate** com botão próprio na run; consumíveis e estratégicos gastam a ação do turno e são descontados do inventário.
+- **4 eventos sazonais novos**: Equinócio de Cinzas, Solstício Rachado, Colheita de Ecos e Semana dos Mortos, com janelas de data independentes.
+- **3 eventos dinâmicos com escolhas**: Mercador do Intervalo, Fenda de Dois Caminhos e Voz na Névoa. Cada escolha aplica um efeito imediato e definitivo.
+- **Tela de escolha de evento** com botões e embed próprio.
+- **`test_ruptura.py`**: 31 testes automatizados cobrindo catálogo, curva de dificuldade, janelas sazonais, escolhas, itens, mochila, inventário SQLite temporário e filtro de itens do PvP.
+
+### 🔧 Melhorias
+
+- **`ItemSpec` expandido** com `tipo`, `uso`, `aplicar`, `efeito_factory`, `limite_run` e `gasta_turno`, mantendo compatibilidade com os itens antigos.
+- **Inventário e mercado** agora agrupam e exibem passivos, artefatos, consumíveis e estratégicos separadamente.
+- **`RunState`** ganhou snapshot de mochila, artefatos equipados, bônus temporário de ataque e controle de escolhas/eventos dinâmicos.
+- **Eventos sazonais** usam janelas genéricas de mês/dia, incluindo janelas que viram o ano.
+- **Eventos dinâmicos** só entram no sorteio se nenhum evento normal saiu e a run está no nível 4+, preservando a probabilidade dos eventos base.
+- **PvP** filtra novos tipos de item e equipa apenas passivos e artefatos.
+
+### 🛡️ Compatibilidade
+
+- Nenhuma mudança em `data/shaggy.db`, no `.env`, no `main.py` ou no `cogs/XpAndCoins.py`.
+- Nenhuma alteração nas chances de encontro, categorias, curvas de escala ou recompensas existentes.
+- As novas criaturas são todas `normal` e calibradas dentro da curva das criaturas antigas de cada era.
+- Itens antigos continuam válidos e os eventos de Halloween/Natal mantêm suas janelas.
+
+### 🧪 Validação
+
+- `python -m py_compile cogs/ruptura.py cogs/ruptura_pvp.py`
+- `python -m unittest test_ruptura -v` (31 testes)
+- `validar_catalogos()` e `validar_arvores()` sem erros.
+
+---
+
 ## [24/10/2026] — Ruptura Temporal V1
 
 ### ✨ Adicionado

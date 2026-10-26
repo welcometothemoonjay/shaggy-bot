@@ -45,7 +45,8 @@ REGRAS PRÓPRIAS DO PvP
 - Dano contínuo (queimadura, veneno, sangria) é reduzido por
   FATOR_DOT_PVP. Atordoar: quem foi atordoado fica imune por 2 turnos.
 - Esquiva total cancela também os status que o golpe aplicaria.
-- Itens NÃO são consumidos no duelo (CONSUMIR_ITENS_PVP = False).
+- Itens NÃO são consumidos no duelo (CONSUMIR_ITENS_PVP = False). Só
+  passivos e artefatos entram: consumíveis e estratégicos ficam fora.
 - Sem relíquias por padrão (RELIQUIAS_INICIAIS_PVP = 0).
 - Sem recompensa de XP por padrão (XP_VITORIA_PVP / XP_DERROTA_PVP = 0).
 - Roubo de vida continua exclusivo do Vampiro (vem do ruptura.py).
@@ -82,13 +83,13 @@ from cogs.ruptura import (
     conceder_reliquia,
     configurar_log_terminal,
     consumir_item,
+    equipar_item_da_run,
     executar_ativa,
     executar_ataque,
     listar_inventario,
     motivo_indisponivel,
     preparar_tabela_inventario,
     ultimas_linhas,
-    usar_item,
     verificar_morte,
 )
 
@@ -1173,12 +1174,16 @@ class RupturaDuelo(commands.Cog):
     # ---------- montagem do duelo ----------
 
     async def equipar_itens(self, run: RunState) -> None:
-        """Equipa a mochila; só consome se CONSUMIR_ITENS_PVP estiver ligado."""
+        """Equipa só passivos/artefatos; só consome se CONSUMIR_ITENS_PVP.
+
+        Consumíveis e estratégicos ficam fora do PvP: a regra do duelo é
+        usar apenas itens permanentes (passivos e artefatos).
+        """
         inventario = await asyncio.to_thread(
             listar_inventario, run.guild_id, run.user_id)
         for chave, qtd in inventario.items():
             item = ITENS.get(chave)
-            if item is None:
+            if item is None or item.tipo not in ("passivo", "artefato"):
                 continue
             usar = min(qtd, item.limite)
             if CONSUMIR_ITENS_PVP:
@@ -1186,7 +1191,8 @@ class RupturaDuelo(commands.Cog):
                     consumir_item, run.guild_id, run.user_id, chave, usar)
                 if not ok:
                     continue
-            usar_item(run, chave, vezes=usar)
+            if not equipar_item_da_run(run, chave, vezes=usar):
+                continue
             run.equipados.append(f"{item.nome} ×{usar} — {item.descricao}")
 
     async def montar_duelista(self, guild_id: int, membro: discord.Member,
