@@ -2,6 +2,40 @@
 
 Todas as mudanças relevantes do projeto serão registradas neste arquivo.
 
+## [26/10/2026] — Ruptura Temporal: guarda única de estado PvE/PvP
+
+### 🐛 Corrigido
+
+- **Bypass de estado entre PvE e PvP (BUG-01):** a Ruptura PvE agora consulta os duelos
+  PvP antes de iniciar uma run. Antes, o PvP verificava runs PvE, mas a reciprocidade não
+  existia.
+- **Janela de escolha de classe:** a checagem também ocorre em `iniciar_run()`, evitando
+  que uma run seja criada depois de o jogador entrar em um duelo com a tela de classe
+  aberta.
+- **Mensagens explícitas:** o jogador recebe um aviso claro ao tentar iniciar PvE durante
+  um convite/duelo e ao tentar duelar durante uma run PvE.
+
+### 🔧 Melhorias
+
+- **`estado_jogador_ocupado()`** centraliza a leitura de `runs_ativas` e `ocupados`.
+- **`RupturaDuelo.motivo_indisponivel()`** passou a usar a mesma guarda compartilhada.
+- **`test_ruptura.py` ampliado para 70 testes**, com cobertura dos dois sentidos da
+  exclusividade PvE/PvP e da janela de `iniciar_run()`.
+
+### 🛡️ Compatibilidade
+
+- Nenhuma mudança em `data/shaggy.db`, no `.env`, no `main.py` ou no `cogs/XpAndCoins.py`.
+- Nenhuma alteração em chances, dano, recompensas, escalas ou atributos.
+- Comandos, aliases, tabelas e fluxos existentes foram preservados.
+
+### 🧪 Validação
+
+- `.venv/bin/python -m unittest test_ruptura -v` (70 testes)
+- `.venv/bin/python -m py_compile cogs/ruptura.py cogs/ruptura_pvp.py test_ruptura.py`
+- `git diff --check`
+
+---
+
 ## [26/10/2026] — Ruptura Temporal: combate tático, mercador e chefes adaptativos
 
 ### ✨ Adicionado

@@ -7324,6 +7324,33 @@ class TelaCombate(discord.ui.View):
 # 9. COG PRINCIPAL
 # ============================================================
 
+def estado_jogador_ocupado(
+    bot: commands.Bot,
+    user_id: int,
+    *,
+    runs_ativas: Optional[dict[int, RunState]] = None,
+    ocupados: Optional[set[int]] = None,
+) -> str:
+    """Retorna "run", "duelo" ou "" para a atividade atual do jogador.
+
+    A checagem é compartilhada por PvE e PvP. Os parâmetros opcionais
+    permitem que cada Cog informe o próprio estado sem depender da ordem
+    de carregamento; o estado do outro Cog é obtido pelo registro do bot.
+    """
+    if runs_ativas is None:
+        cog = bot.get_cog("RupturaTemporal")
+        runs_ativas = getattr(cog, "runs_ativas", {})
+    if ocupados is None:
+        cog = bot.get_cog("RupturaDuelo")
+        ocupados = getattr(cog, "ocupados", ())
+
+    if user_id in runs_ativas:
+        return "run"
+    if user_id in ocupados:
+        return "duelo"
+    return ""
+
+
 class RupturaTemporal(commands.Cog):
     """Cog do roguelite Ruptura Temporal."""
 
@@ -7396,8 +7423,16 @@ class RupturaTemporal(commands.Cog):
     async def ruptura(self, ctx: commands.Context):
         """Inicia uma run com s!ruptura; cada jogador tem uma sessão própria."""
         uid = ctx.author.id
-        if uid in self.runs_ativas:
+        ocupacao = estado_jogador_ocupado(
+            self.bot, uid, runs_ativas=self.runs_ativas)
+        if ocupacao == "run":
             await ctx.send("Você já tem uma run ativa. Continue a batalha atual.")
+            return
+        if ocupacao == "duelo":
+            await ctx.send(
+                "Você já está em um convite ou duelo da Ruptura. "
+                "Termine-o antes de iniciar uma run."
+            )
             return
 
         inventario = await asyncio.to_thread(
@@ -7477,9 +7512,18 @@ class RupturaTemporal(commands.Cog):
         """Cria o estado da run, equipa a mochila, gera o 1º inimigo."""
         uid = interaction.user.id
 
-        if uid in self.runs_ativas:
+        ocupacao = estado_jogador_ocupado(
+            self.bot, uid, runs_ativas=self.runs_ativas)
+        if ocupacao == "run":
             await interaction.response.send_message(
                 "Você já possui uma run ativa.", ephemeral=True
+            )
+            return
+        if ocupacao == "duelo":
+            await interaction.response.send_message(
+                "Você já está em um convite ou duelo da Ruptura. "
+                "Termine-o antes de iniciar uma run.",
+                ephemeral=True,
             )
             return
 

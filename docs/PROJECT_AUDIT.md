@@ -1,11 +1,17 @@
 # Auditoria Técnica — Shaggy Bot
 
 **Data:** 26 de outubro de 2026
-**Commit de referência:** `9cb5c19` (`Mercado e nova mecanica para inimigos`)
+**Commit de referência:** `9cb5c19` (`Mercado e nova mecanica para inimigos`) + alterações
+locais de BUG-01 ainda não commitadas
 **Ambiente:** Linux, Python 3.14, `discord.py` 2.7.1, `openai` 3.37.0, SQLite local
 **Escopo:** arquitetura, Cogs, persistência, integrações, Ruptura Temporal, testes e
-documentação. **Não** inclui alteração de balanceamento, esquema do banco ou código de
-produção.
+documentação. A auditoria original **não** alterou balanceamento, esquema do banco ou
+código de produção. A atualização posterior implementou apenas BUG-01 (integração
+PvE/PvP), sem mudar dados ou balanceamento.
+
+> **Atualização de 26/10/2026:** o problema P-02 foi corrigido com uma guarda
+> compartilhada entre PvE e PvP. A suíte passou de 66 para 70 testes. Os demais achados
+> continuam como estavam na auditoria original.
 
 ---
 
@@ -14,15 +20,15 @@ produção.
 O projeto está funcional e tem uma base acima da média para um bot de Discord: economia
 centralizada, transações SQLite explícitas nos fluxos de dinheiro, boa separação entre
 regras e interface na Ruptura, validadores de catálogo e uma suíte automatizada real
-(66 testes) para o sistema mais complexo.
+(70 testes) para o sistema mais complexo.
 
 Os principais achados são de **integração e ciclo de vida**, não de “jogo quebrado”:
 
 1. `main.py` executa `bot.run(TOKEN)` **fora** do bloco `if __name__ == "__main__"`.
    Isso torna o módulo impossível de importar com segurança e ignora o guard de token.
-2. A proteção contra sobreposição de estados é **assimétrica**: o PvP consulta as runs de
-   PvE, mas a Ruptura PvE não consulta os duelos PvP. Um jogador em duelo pode iniciar
-   uma run.
+2. **Resolvido em BUG-01:** a proteção contra sobreposição de estados era assimétrica; o
+   PvP consultava as runs de PvE, mas a Ruptura PvE não consultava os duelos PvP. Agora
+   ambos usam `estado_jogador_ocupado()`.
 3. `RupturaTemporal.cog_unload()` descarta runs ativas sem finalização, recompensa ou
    devolução de itens consumidos. O timeout normal finaliza corretamente; o descarregamento
    não.
@@ -47,14 +53,16 @@ grandes de conteúdo.
 
 ## 2. Método e evidências
 
-Foram executadas apenas operações de leitura, compilação e testes:
+Foram executadas apenas operações de leitura, compilação e testes na auditoria original.
+A implementação posterior de BUG-01 alterou código de produção e ampliou a suíte; as
+validações dessa alteração estão registradas no fim desta seção e na seção 11.
 
 | Verificação | Comando | Resultado |
 | --- | --- | --- |
 | Compilação | `.venv/bin/python -m py_compile main.py cogs/*.py test_ruptura.py` | OK |
 | Importação dos Cogs | importação programática dos 17 módulos | 17/17 OK |
-| Suíte principal | `.venv/bin/python -m unittest test_ruptura -v` | 66 testes, OK |
-| Descoberta | `.venv/bin/python -m unittest discover -v` | 66 testes, OK |
+| Suíte principal | `.venv/bin/python -m unittest test_ruptura -v` | 70 testes, OK |
+| Descoberta | `.venv/bin/python -m unittest discover -v` | 70 testes, OK |
 | Catálogo | `validar_catalogos()` | sem erro |
 | Árvores | `validar_arvores()` | `[]` |
 | Eventos | `validar_eventos()` | `[]` |
@@ -263,20 +271,24 @@ antes da chamada. É uma mudança pequena, mas exige autorização por tocar `ma
 **Critério de aceitação:** `import main` não inicia o bot; executar `python main.py` sem
 token falha com mensagem clara e sem tentar conectar.
 
-### P-02 — Guarda de concorrência assimétrica entre PvE e PvP (média)
+### P-02 — Guarda de concorrência assimétrica entre PvE e PvP (média) — **resolvido**
 
-**Evidência:** `cogs/ruptura.py:7399` verifica apenas `self.runs_ativas`.
-`cogs/ruptura_pvp.py:1118` verifica `ruptura.runs_ativas`, e `:1147` adiciona o desafiante
-a `self.ocupados`. O PvE não consulta `RupturaDuelo.ocupados`.
+**Evidência histórica:** `cogs/ruptura.py:7399` verificava apenas `self.runs_ativas`.
+`cogs/ruptura_pvp.py:1118` verificava `ruptura.runs_ativas`, e `:1147` adiciona o desafiante
+a `self.ocupados`. O PvE não consultava `RupturaDuelo.ocupados`.
 
-**Efeito:** um jogador que está convidando, escolhendo classe ou duelando pode executar
-`s!ruptura` e abrir uma run simultânea. O inverso é bloqueado.
+**Efeito:** um jogador que estava convidando, escolhendo classe ou duelando podia executar
+`s!ruptura` e abrir uma run simultânea. O inverso já era bloqueado.
 
-**Correção recomendada:** extrair uma função de disponibilidade compartilhada ou fazer o
-PvE consultar o Cog de duelo antes de criar a run.
+**Correção aplicada em 26/10/2026 (BUG-01):** `cogs/ruptura.py:7327` define
+`estado_jogador_ocupado()`, que consulta runs PvE e ocupações PvP. A função é usada em
+`s!ruptura` (`:7423`), em `iniciar_run()` (`:7507`) e em
+`RupturaDuelo.motivo_indisponivel()` (`cogs/ruptura_pvp.py:1110`). A checagem em
+`iniciar_run()` fecha a janela entre abrir a escolha de classe e confirmar a run.
 
 **Critério de aceitação:** nenhum jogador consegue iniciar PvE enquanto estiver em
-convite/duelo, e nenhum duelo começa enquanto houver run ativa.
+convite/duelo, e nenhum duelo começa enquanto houver run ativa. Coberto por
+`TestGuardaPvEPvP` em `test_ruptura.py`.
 
 ### P-03 — Descarregamento descarta runs sem finalização (média)
 
@@ -482,7 +494,7 @@ de verdade.
 
 | ID | Risco | Probabilidade | Impacto | Mitigação |
 | --- | --- | --- | --- | --- |
-| R-01 | Corrida entre PvE e PvP (P-02) | Média | Médio | Guarda compartilhada |
+| R-01 | Corrida entre PvE e PvP (P-02) | Baixa | Médio | Guarda compartilhada aplicada em BUG-01; coberta por testes |
 | R-02 | Perda de runs no unload (P-03) | Média | Médio | Finalização/estorno no unload |
 | R-03 | Bloqueio do event loop por SQLite (P-05) | Média | Médio | `to_thread` no caminho de XP |
 | R-04 | Lock de banco sob carga | Média | Alto | WAL + `busy_timeout` + repositório |
@@ -518,20 +530,21 @@ de verdade.
 - Chefes com telegrafia, interrupção e adaptação isolada por criatura/run/jogador.
 - Mercador e forja integrados à economia com compra atômica.
 - PvP reutiliza o motor sem consumir itens por padrão.
-- Testes cobrem catálogo, itens, inventário, mercado, combate tático, PvP e embeds.
+- Testes cobrem catálogo, itens, inventário, mercado, combate tático, PvP, guarda de
+  estado PvE/PvP e embeds.
 
 ### Pontos fracos
 
 - Monólito e UI acoplada ao motor no mesmo arquivo.
 - Estado apenas em memória e descarte no unload.
-- Assimetria de guarda com PvP.
+- Assimetria de guarda com PvP **corrigida em BUG-01**.
 - Recompensas não reconciliadas em caso de falha.
 - Ausência de testes de progressão longa, balanceamento e repetibilidade.
 - Conteúdo cresceu mais rápido que a infraestrutura de testes.
 
 ### Melhorias prioritárias
 
-1. **Corrigir P-01, P-02 e P-03** antes de adicionar conteúdo.
+1. **Corrigir P-01 e P-03** antes de adicionar conteúdo. P-02 foi concluído em BUG-01.
 2. **Criar testes de economia da Ruptura** (recompensa por abate, bônus final, falha de
    persistência, item consumido e run abandonada).
 3. **Separar o motor da UI** e reduzir `ruptura.py` a uma fachada.
@@ -577,7 +590,7 @@ constantes/registro tipado, de forma incremental.
 Não recomendo um novo Cog de conteúdo antes de:
 
 - cobrir os fluxos críticos com testes;
-- resolver P-01, P-02 e P-03;
+- resolver P-01 e P-03 (P-02 concluído em BUG-01);
 - definir a política de migração do banco.
 
 Um módulo interno (`ruptura_combate.py`, `ruptura_itens.py`) não é um novo Cog e pode
@@ -599,7 +612,7 @@ ajudar a reduzir o monólito sem aumentar a superfície de comandos.
 
 ```text
 $ .venv/bin/python -m unittest test_ruptura -v
-Ran 66 tests in 0.637s
+Ran 70 tests in 0.280s
 OK
 ```
 
@@ -614,6 +627,7 @@ Classes de teste em `test_ruptura.py`:
 - `TestProgressaoMercador` — progressão até o mercador.
 - `TestCombateTatico` — telegrafia, interrupção, adaptação, isolamento e expiração.
 - `TestPvP` — filtro de itens e compatibilidade.
+- `TestGuardaPvEPvP` — exclusividade de estado entre PvE e PvP nos dois sentidos.
 - `TestEmbeds` — conteúdo e limites de embed.
 
 Nenhum teste usa o banco real: os testes de persistência patcham `DB_PATH` para um
@@ -685,12 +699,12 @@ conteúdo.
 
 Ordem recomendada:
 
-1. Corrigir P-01, P-02 e P-03 (mudanças pequenas, alto retorno).
+1. Corrigir P-01 e P-03 (mudanças pequenas, alto retorno). P-02 foi concluído em BUG-01.
 2. Criar testes de economia/cassino e de falha de persistência.
 3. Definir escopo de pets e política de migração.
 4. Dividir os módulos maiores sem alterar comandos públicos.
 5. Só então expandir classes, Chefes, itens e eventos.
 
-Nenhuma alteração de código de produção, esquema, `.env` ou `main.py` foi feita nesta
-auditoria. As únicas mudanças são este documento, o roadmap, a revisão de Cogs e a
-atualização do README.
+A auditoria original não alterou código de produção, esquema, `.env` ou `main.py`. A
+atualização posterior implementou apenas BUG-01 em `cogs/ruptura.py`, `cogs/ruptura_pvp.py`
+e `test_ruptura.py`, sem tocar em banco, `.env`, `main.py` ou balanceamento.

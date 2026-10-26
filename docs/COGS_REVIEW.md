@@ -1,11 +1,12 @@
 # Revisão de Cogs — Shaggy Bot
 
-**Base:** commit `9cb5c19`, auditoria de 26/10/2026.
+**Base:** commit `9cb5c19`, auditoria de 26/10/2026, com atualização posterior de BUG-01.
 **Pergunta central:** cada Cog deve ser mantido, melhorado, refatorado, removido ou
 substituído?
 
-> Nenhum Cog foi alterado nesta revisão. As recomendações são propostas; mudanças de
-> comportamento, esquema ou dependências exigem autorização.
+> A revisão original não alterou Cogs. Em 26/10/2026, BUG-01 alterou apenas
+> `cogs/ruptura.py` e `cogs/ruptura_pvp.py` para compartilhar a guarda de estado PvE/PvP;
+> o restante das recomendações continua como proposta e exige autorização.
 
 ---
 
@@ -29,7 +30,7 @@ Escala qualitativa: **alta / média / baixa**.
 | --- | ---: | --- | --- | --- | --- | --- | --- |
 | `XpAndCoins` | 1.088 | `/xp`, `/level`, `/coins`, `/ranking`, admin | `user_stats` | **Alta** | **Alta** | Alta | **Manter** (proteger) |
 | `ruptura` | 8.063 | `s!ruptura`, `s!market`, `s!inventario`, `/build` | inventário, build, mercado | **Alta** | Média/Alta | Baixa | **Manter + refatorar** |
-| `ruptura_pvp` | 1.322 | `s!duelo`, `s!duelorank` | `ruptura_pvp` | Média | Média | Média | **Manter + corrigir integração** |
+| `ruptura_pvp` | 1.322 | `s!duelo`, `s!duelorank` | `ruptura_pvp` | Média | Média | Média | **Manter** (integração coberta) |
 | `ruptura_extras` | 1.055 | `s!ranking_ruptura`, `s!perfil_ruptura`, IA | `ruptura_runs`, `ruptura_abates` | Média | Média | Média | **Manter + separar** |
 | `badges` | 2.313 | 13 comandos de insígnias | 4 tabelas + fila | Média/Alta | Alta | Média | **Manter + dividir** |
 | `cassino` | 2.405 | `/cassino`, stats, títulos | 3 tabelas | Média | Média | Média | **Manter + testar/dividir** |
@@ -98,14 +99,13 @@ build, persistência e UI.
 - Combate com Foco, guarda, técnicas, ativas, status, crítico, relíquias e eventos.
 - Chefes com telegrafia, interrupção e adaptação isolada.
 - Mercado/forja com compra atômica e testes de concorrência.
-- Boa suíte de testes para o tamanho do sistema (66 testes no total).
+- Boa suíte de testes para o tamanho do sistema (70 testes no total).
 - UI funcional com botões, selects, mochila e eventos.
 
 **Pontos fracos**
 
 - 8.063 linhas e múltiplas responsabilidades no mesmo arquivo.
 - `cog_unload()` descarta runs sem finalização.
-- PvE não consulta o estado de duelo do PvP.
 - Estado apenas em memória; restart abrupto perde runs.
 - Recompensas podem falhar sem compensação.
 - UI e regras importam `discord` juntas, dificultando testes puros.
@@ -130,14 +130,14 @@ imports usados por `ruptura_pvp.py` e `ruptura_extras.py`.
 
 **Pontos fracos**
 
-- A reciprocidade não existe: o PvE não verifica `ocupados`.
-- Duelo e PvE usam chaves de estado diferentes (`runs_ativas` por usuário e `ocupados`
-  por usuário), sem uma fonte única.
+- A reciprocidade da guarda foi corrigida em BUG-01; o PvE agora consulta `ocupados`.
+- Duelo e PvE ainda mantêm coleções de estado separadas, mas a leitura é centralizada
+  por `estado_jogador_ocupado()`.
 - Em empate, o cálculo de XP usa `XP_DERROTA_PVP` para ambos; hoje o padrão é 0, mas a
   lógica fica latente.
-- Sem testes próprios no repositório (apenas compatibilidade via `test_ruptura.py`).
+- Sem suíte própria; a guarda compartilhada agora é coberta em `test_ruptura.py`.
 
-**Recomendação: MANTER e corrigir a integração de estado.** Não substituir.
+**Recomendação: MANTER; integração de estado coberta.** Não substituir.
 
 ---
 

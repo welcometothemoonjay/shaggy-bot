@@ -84,6 +84,7 @@ from cogs.ruptura import (
     configurar_log_terminal,
     consumir_item,
     equipar_item_da_run,
+    estado_jogador_ocupado,
     executar_ativa,
     executar_ataque,
     listar_inventario,
@@ -1113,9 +1114,11 @@ class RupturaDuelo(commands.Cog):
         if ruptura is None:
             return "O módulo Ruptura Temporal não está carregado."
         quem = "Você" if convidado else membro.display_name
-        if membro.id in self.ocupados:
+        ocupacao = estado_jogador_ocupado(
+            self.bot, membro.id, ocupados=self.ocupados)
+        if ocupacao == "duelo":
             return f"{quem} já está em um convite ou duelo."
-        if membro.id in ruptura.runs_ativas:
+        if ocupacao == "run":
             return (f"{quem} tem uma run ativa de Ruptura. "
                     "Termine-a antes de duelar.")
         return ""

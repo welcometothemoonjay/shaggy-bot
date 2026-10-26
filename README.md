@@ -104,6 +104,8 @@ máximo possível.
   ação do turno** e o item é consumido.
 - Estratégicos só podem ser usados **1 vez por run**.
 - O **PvP** usa apenas passivos e artefatos; consumíveis e estratégicos ficam fora do duelo.
+- Uma run PvE e um duelo PvP são **mutuamente exclusivos** para o mesmo jogador. A guarda
+  é compartilhada entre os dois Cogs, inclusive durante a escolha de classe.
 - As janelas sazonais não alteram a dificuldade global: fora delas, o evento simplesmente
   não entra no sorteio.
 
@@ -115,8 +117,8 @@ máximo possível.
 
 A suíte cobre catálogo, combate tático, preparação/interrupção/resolução de ações,
 expiração de efeitos, adaptação e isolamento de Chefes, mercador, forja, compras atômicas,
-concorrência, inventário SQLite temporário, PvP e embeds. Os testes usam um banco
-temporário e não tocam em `data/shaggy.db`.
+concorrência, inventário SQLite temporário, PvP, guarda de estado PvE/PvP e embeds. Os
+testes usam um banco temporário e não tocam em `data/shaggy.db`.
 
 ### 🎰 Salão da Ruptura — cassino
 
@@ -168,7 +170,7 @@ Universo de fantasia sombria e horror cósmico que inspira parte do conteúdo.
 shaggy-bot/
 ├── main.py                  # Bot, carregamento automático dos Cogs e sincronização
 ├── requirements.txt         # Dependências de execução
-├── test_ruptura.py          # Única suíte automatizada do repositório (66 testes)
+├── test_ruptura.py          # Única suíte automatizada do repositório (70 testes)
 ├── cogs/
 │   ├── XpAndCoins.py        # Economia central: XP, níveis, Abysmus, transações
 │   ├── ruptura.py           # Motor da Ruptura: catálogo, combate, build, mercado, UI
@@ -407,8 +409,8 @@ A única suíte automatizada do repositório é `test_ruptura.py`:
 .venv/bin/python -m unittest discover -v
 ```
 
-Resultado da auditoria: **66 testes, todos aprovados**. A suíte não precisa de Discord
-conectado e usa banco temporário.
+Resultado da auditoria e da correção BUG-01: **70 testes, todos aprovados**. A suíte não
+precisa de Discord conectado e usa banco temporário.
 
 Validações complementares executadas na auditoria:
 

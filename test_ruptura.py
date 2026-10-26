@@ -1088,6 +1088,85 @@ class TestPvP(unittest.TestCase):
                              for e in run.equipados))
 
 
+class TestGuardaPvEPvP(unittest.TestCase):
+    """Impede uma run PvE e um duelo PvP simultâneos para o mesmo jogador."""
+
+    @staticmethod
+    def bot_com(runs_ativas=None, ocupados=None):
+        cogs = {
+            "RupturaTemporal": SimpleNamespace(
+                runs_ativas=runs_ativas if runs_ativas is not None else {}),
+            "RupturaDuelo": SimpleNamespace(
+                ocupados=ocupados if ocupados is not None else set()),
+        }
+        return SimpleNamespace(get_cog=lambda nome: cogs.get(nome))
+
+    def test_estado_detecta_run_duelo_e_jogador_livre(self):
+        bot = self.bot_com(runs_ativas={7: object()})
+        self.assertEqual(rt.estado_jogador_ocupado(bot, 7), "run")
+        self.assertEqual(rt.estado_jogador_ocupado(bot, 8), "")
+
+        bot = self.bot_com(ocupados={7})
+        self.assertEqual(rt.estado_jogador_ocupado(bot, 7), "duelo")
+
+    def test_comando_pve_bloqueia_jogador_em_duelo(self):
+        bot = self.bot_com(ocupados={7})
+        cog = object.__new__(rt.RupturaTemporal)
+        cog.bot = bot
+        cog.runs_ativas = {}
+        ctx = SimpleNamespace(
+            author=SimpleNamespace(id=7),
+            guild=SimpleNamespace(id=2),
+            send=AsyncMock(),
+        )
+
+        asyncio.run(rt.RupturaTemporal.ruptura.callback(cog, ctx))
+
+        ctx.send.assert_awaited_once()
+        self.assertIn("convite ou duelo", ctx.send.await_args.args[0])
+        self.assertEqual(cog.runs_ativas, {})
+
+    def test_iniciar_run_bloqueia_jogador_em_duelo(self):
+        bot = self.bot_com(ocupados={7})
+        cog = object.__new__(rt.RupturaTemporal)
+        cog.bot = bot
+        cog.runs_ativas = {}
+        interaction = SimpleNamespace(
+            user=SimpleNamespace(id=7, display_name="Teste"),
+            guild_id=2,
+            response=SimpleNamespace(send_message=AsyncMock()),
+        )
+
+        asyncio.run(cog.iniciar_run(interaction, rt.CLASSES["guardiao"]))
+
+        interaction.response.send_message.assert_awaited_once()
+        self.assertIn(
+            "convite ou duelo",
+            interaction.response.send_message.await_args.args[0],
+        )
+        self.assertEqual(cog.runs_ativas, {})
+
+    def test_duelo_bloqueia_jogador_em_run_pve(self):
+        bot = self.bot_com(runs_ativas={7: object()})
+        cog = object.__new__(pvp.RupturaDuelo)
+        cog.bot = bot
+        cog.ocupados = set()
+        ctx = SimpleNamespace(
+            author=SimpleNamespace(id=7, display_name="Autor"),
+            guild=SimpleNamespace(id=2),
+            send=AsyncMock(),
+        )
+        oponente = SimpleNamespace(
+            id=8, bot=False, display_name="Oponente", mention="<@8>")
+
+        asyncio.run(
+            pvp.RupturaDuelo.duelo.callback(cog, ctx, oponente))
+
+        ctx.send.assert_awaited_once()
+        self.assertIn("run ativa", ctx.send.await_args.args[0])
+        self.assertEqual(cog.ocupados, set())
+
+
 class TestEmbeds(unittest.TestCase):
     def test_embeds_da_expansao(self):
         mercado = rt.criar_embed_mercado()

@@ -55,11 +55,21 @@ alterar balanceamento, recompensas ou esquema de dados nesta fase.
 | TST-04 | Suítes de economia e cassino | Testabilidade | P0 | Média |
 | TST-05 | Simulador de progressão | Testabilidade | P2 | Média |
 
+## Status de execução
+
+- **Concluído em 26/10/2026:** BUG-01 — guarda única de estado PvE/PvP, com
+  `estado_jogador_ocupado()` compartilhado e cobertura automatizada nos dois sentidos.
+- **Em andamento:** nenhum item.
+- **Próximo recomendado:** BUG-02 — finalização de runs no unload.
+- **Pendentes:** todas as demais propostas desta lista.
+
 ---
 
 ## 1. Correções de bugs
 
 ### BUG-01 — Guarda única de estado PvE/PvP
+
+**Status:** concluído em 26/10/2026.
 
 - **Problema/oportunidade:** o PvP verifica `runs_ativas`, mas o PvE não verifica
   `RupturaDuelo.ocupados`. Um jogador em convite/duelo pode iniciar uma run.
@@ -74,6 +84,9 @@ alterar balanceamento, recompensas ou esquema de dados nesta fase.
 - **Prioridade:** P0.
 - **Critério de aceitação:** teste automatizado prova que PvE e PvP são mutuamente
   exclusivos por jogador, com mensagem clara nos dois sentidos.
+- **Implementação:** `cogs/ruptura.py` ganhou `estado_jogador_ocupado()`, usado por
+  `s!ruptura`, por `iniciar_run()` e por `RupturaDuelo.motivo_indisponivel()`. A checagem
+  também cobre a janela entre abrir a escolha de classe e confirmar a run.
 
 ### BUG-02 — Finalização de runs no unload
 
@@ -549,7 +562,7 @@ alterar balanceamento, recompensas ou esquema de dados nesta fase.
 
 ## Sequenciamento sugerido
 
-1. **Ciclo 1 (P0):** BUG-01, BUG-02, BUG-03, TST-04.
+1. **Ciclo 1 (P0):** BUG-01 **concluído**; restam BUG-02, BUG-03 e TST-04.
 2. **Ciclo 2 (P1):** TST-01 (fase 1), CMB-01, CMB-02, ITM-01, ITM-02, UX-01, UX-03,
    PRG-02, PRG-03.
 3. **Ciclo 3 (P1/P2):** BOSS-02, CLS-01, CLS-03, CRE-03, TST-02, TST-03.
