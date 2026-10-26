@@ -53,6 +53,13 @@ BUILD (ÁRVORES DE ESPECIALIZAÇÃO)
 - /build_resetar: taxa de 100 Abysmus; os pontos gastos voltam como
   "pontos de build" e pagam os próximos nós antes do seu saldo.
 
+EVENTOS TEMPORAIS (COM EFEITO REAL)
+-----------------------------------
+- Cada era tem o seu evento (Lua Sangrenta, Maré de Fuligem, Noite
+  Alienígena); Halloween e Natal são sazonais e trazem criaturas
+  exclusivas. Eles alteram criaturas, jogador e recompensas e duram
+  1 ou 2 encontros. O embed da run mostra o evento enquanto vale.
+
 MERCADO E MOCHILA
 -----------------
 - O mercado vende SOMENTE itens passivos de build (ataque, defesa, vida,
@@ -908,6 +915,7 @@ class EnemySpec:
     habilidade: str   # chave em HABILIDADES
     descricao: str
     categoria: str = "normal"  # normal, mini_chefe, chefe ou deus
+    evento: str = ""           # chave de um evento: só surge durante ele
 
 
 class HabilidadeInimiga:
@@ -1117,6 +1125,79 @@ class Maldicao(HabilidadeInimiga):
         return "Golpe +5 que queima se ferir você. Barreira e Guarda anulam a maldição."
 
 
+# ------------------------------------------------------------
+# NOVAS HABILIDADES DE CRIATURAS (veja o tutorial acima do catálogo)
+# ------------------------------------------------------------
+
+@registrar_habilidade("espinhos")
+class Espinhos(HabilidadeInimiga):
+    nome = "Casca Farpada"
+    descricao = "Cada golpe seu devolve 2 de dano (+1 a cada 6 níveis). Nunca mata."
+
+    def reduzir_dano_recebido(self, run, inimigo, dano):
+        if dano <= 0:
+            return dano
+        retorno = min(6, 2 + run.nivel // 6)
+        # A barreira absorve o retorno antes da vida; a vida nunca cai de 1.
+        absorvido = min(run.barreira, retorno)
+        run.barreira -= absorvido
+        perda = min(retorno - absorvido, max(0, run.vida - 1))
+        run.vida -= perda
+        run.log.append(
+            f"🌵 A casca de {inimigo.spec.nome} devolve {retorno} de dano"
+            + (f" (barreira absorveu {absorvido})." if absorvido else ".")
+        )
+        return dano
+
+    def intencao(self, run, inimigo):
+        retorno = min(6, 2 + run.nivel // 6)
+        return (f"Cada golpe seu devolve {retorno} de dano (a barreira absorve; "
+                "nunca deixa você abaixo de 1 de vida). Poucos golpes fortes compensam.")
+
+
+@registrar_habilidade("furia")
+class Furia(HabilidadeInimiga):
+    nome = "Fúria Crescente"
+    descricao = "Causa até +6 de dano (+1 a cada 8 níveis) conforme perde vida."
+
+    def modificar_ataque(self, run, inimigo, dano):
+        perdido = 1 - inimigo.vida / max(1, inimigo.vida_maxima)
+        extra = int((6 + run.nivel // 8) * perdido)
+        if extra > 0:
+            run.log.append(f"🔥 {inimigo.spec.nome} enfurece: +{extra} de dano.")
+        return dano + max(0, extra)
+
+    def intencao(self, run, inimigo):
+        return "Quanto mais ferida, mais forte o golpe. Acabe rápido ou aguente em guarda."
+
+
+@registrar_habilidade("ultimo_suspiro")
+class UltimoSuspiro(HabilidadeInimiga):
+    nome = "Último Suspiro"
+    descricao = "Sobrevive 1x a um golpe fatal com 1 de vida e recupera 20% da vida no turno seguinte."
+
+    def reduzir_dano_recebido(self, run, inimigo, dano):
+        if getattr(inimigo, "_suspiro", False) or dano < inimigo.vida:
+            return dano
+        inimigo._suspiro = True
+        run.log.append(f"💀 {inimigo.spec.nome} resiste ao golpe fatal com 1 de vida!")
+        return max(0, inimigo.vida - 1)
+
+    def ao_turno(self, run, inimigo):
+        if getattr(inimigo, "_suspiro", False) and not getattr(inimigo, "_suspiro_curou", False):
+            inimigo._suspiro_curou = True
+            cura = min(int(inimigo.vida_maxima * 0.20), inimigo.vida_maxima - inimigo.vida)
+            if cura > 0:
+                inimigo.vida += cura
+                run.log.append(f"💀 {inimigo.spec.nome} recupera {cura} de vida.")
+        return False
+
+    def intencao(self, run, inimigo):
+        if getattr(inimigo, "_suspiro", False):
+            return "Já usou o Último Suspiro: agora cai de vez."
+        return "Sobrevive uma vez a um golpe fatal e se recupera. Prepare um segundo golpe."
+
+
 CRIATURAS: list[EnemySpec] = []
 
 
@@ -1125,110 +1206,22 @@ def registrar_criatura(spec: EnemySpec) -> EnemySpec:
     CRIATURAS.append(spec)
     return spec
 
-# ============================================================
-# NOVAS CRIATURAS — Ruptura Temporal
-# ============================================================
-# Cole logo abaixo dos outros `registrar_criatura(...)` em cogs/ruptura.py
-# e rode `python test_ruptura.py`.
-#
-# Ordem dos campos:
-#   nome, era, nivel_minimo, vida, ataque, defesa, xp, abysmus, habilidade, descricao
-#
-# Lore: propostas de expansão para SFA, ainda não cânone. As origens
-# abaixo são hipóteses (ninguém no mundo confirma nada).
-# ============================================================
 
-
-# ------------------------- DA'KOR ----------------------------
-
-# Origem (proposta): musgo que cresceu em torno de um posto de vigia abandonado.
-# Motivação: guarda o lugar, não quem passa. Contornar: ela só reage a quem entra.
-registrar_criatura(EnemySpec(
-    "Vigília de Musgo", "Da'kor", 1, 30, 7, 0, 12, 8, "regenerar",
-    "Musgo que se ergue em forma de sentinela. Dizem que ela só protege o chão onde está parada.",
-))
-
-# Origem (proposta): matilha que seguia o rastro de algo que nunca foi encontrado.
-# Motivação: fome e hábito. Contornar: ataca primeiro, então vale entrar de guarda alta.
-registrar_criatura(EnemySpec(
-    "Lobo de Bruma", "Da'kor", 6, 72, 16, 3, 40, 10, "emboscada",
-    "Um lobo feito de neblina e pelo úmido. Só se vê o animal quando ele já está perto demais.",
-))
-
-# Origem (proposta): uma anciã que fez um trato com o charco e não sabe mais quem cumpre o quê.
-registrar_criatura(EnemySpec(
-    "Anciã do Charco", "Da'kor", 9, 94, 14, 3, 76, 14, "maldicao",
-    "Ela fala baixo, em rimas que ninguém ensinou. Quem escuta até o fim sai sentindo o peso de uma promessa que não fez.",
-    categoria="mini_chefe",
-))
-
-# Origem (proposta): um rio que secou e continua se comportando como se ainda corresse.
-registrar_criatura(EnemySpec(
-    "A Mãe das Marés Secas", "Da'kor", 10, 142, 14, 4, 140, 20, "drenar",
-    "Onde ela pisa, a água some das poças, dos odres e das gargantas. O leito vazio atrás dela ainda guarda o formato de uma correnteza.",
-    categoria="chefe",
-))
-
-
-# ------------------------ ERA A VAPOR ------------------------
-
-# Origem (proposta): válvula de pressão de uma caldeira que ficou ligada tempo demais.
-registrar_criatura(EnemySpec(
-    "Válvula Faminta", "Era a Vapor", 3, 46, 12, 2, 24, 8, "drenar",
-    "Uma válvula de pressão que aprendeu a sugar o calor de quem passa. Ela não parece saber o que fazer com ele.",
-))
-
-# Origem (proposta): autômato de entregas que continua levando uma carta sem destinatário.
-registrar_criatura(EnemySpec(
-    "Mensageiro de Latão", "Era a Vapor", 8, 86, 17, 4, 50, 10, "blindagem",
-    "Casco de latão polido e um malote lacrado. Ele não ataca por maldade: qualquer um que tente abrir o malote vira obstáculo.",
-))
-
-# Origem (proposta): um contador que passou a cobrar o que não lhe devem.
-registrar_criatura(EnemySpec(
-    "Tesoureiro de Brasas", "Era a Vapor", 6, 78, 12, 3, 58, 14, "furia",
-    "Cada moeda que ele recusa o deixa mais quente. No fim da conversa, a conta já está em chamas.",
-    categoria="mini_chefe",
-))
-
-# Origem (proposta): o dono de uma fundição que virou a própria pressão que administrava.
-registrar_criatura(EnemySpec(
-    "O Barão da Pressão", "Era a Vapor", 15, 174, 17, 4, 184, 20, "furia",
-    "Um homem de casaco longo e ponteiros no lugar dos olhos. Quanto mais ele se irrita, mais alto o apito dentro do peito.",
-    categoria="chefe",
-))
-
-
-# ------------------- FUTURO DISTORCIDO -----------------------
-
-# Origem (proposta): um trem que passa em todas as estações de um futuro que não aconteceu.
-registrar_criatura(EnemySpec(
-    "Eco do Último Trem", "Futuro Distorcido", 5, 62, 15, 3, 36, 10, "salto_temporal",
-    "O apito chega antes do trem, e o trem chega antes de você olhar. Ninguém viu um passageiro descer.",
-))
-
-# Origem (proposta): mapeador que desenhou rachaduras no tempo e foi engolido pelo próprio mapa.
-registrar_criatura(EnemySpec(
-    "Cartógrafo de Rachaduras", "Futuro Distorcido", 10, 108, 21, 5, 68, 10, "maldicao",
-    "Traça linhas no ar e as linhas viram fendas. Quem pisa no que ele desenhou carrega a marca por mais tempo do que devia.",
-))
-
-# Origem (proposta): um ponteiro solto que continua marcando um relógio que já não existe.
-# Nível 12: valores extrapolados da curva dos mini-chefes (3, 6, 9). Revise no --sim.
-registrar_criatura(EnemySpec(
-    "Ponteiro Sem Relógio", "Futuro Distorcido", 12, 106, 15, 3, 92, 14, "ultimo_suspiro",
-    "Um ponteiro do tamanho de uma lança que aponta para um instante só. Quando cai, o instante apontado costuma acontecer.",
-    categoria="mini_chefe",
-))
-
-# Origem (proposta): um registro que passou a escrever o que ainda vai acontecer.
-registrar_criatura(EnemySpec(
-    "O Cronista do Fim", "Futuro Distorcido", 20, 205, 18, 5, 225, 20, "ultimo_suspiro",
-    "Escreve sem parar numa língua que ninguém leu. Cada página que arranca vira um dia que você não vai viver de novo.",
-    categoria="chefe",
-))
-
-
+# ------------------------------------------------------------
+# COMO ADICIONAR UMA CRIATURA (resumo; o guia completo está no tutorial)
+# ------------------------------------------------------------
+# 1. Escolha a era ("Da'kor", "Era a Vapor" ou "Futuro Distorcido") e a
+#    categoria: normal | mini_chefe | chefe | deus.
+# 2. Escolha uma habilidade que já existe em HABILIDADES (ou crie uma
+#    nova com @registrar_habilidade("chave")).
+# 3. Copie um registrar_criatura(EnemySpec(...)) e ajuste:
+#      nome, era, nivel_minimo, vida, ataque, defesa, xp, abysmus,
+#      habilidade, descricao, categoria=..., evento="" (ou a chave de um evento)
+#    Siga a curva dos vizinhos de mesmo nível (veja o tutorial).
+# 4. O campo 'abysmus' é LEGADO: hoje a moeda depende só da categoria
+#    (CHANCE_MOEDA_*). Mantenha um valor coerente, mas ele não altera o drop.
+# 5. Rode `python test_ruptura.py`: o validador acusa habilidade, era ou
+#    evento inexistentes.
 
 # eras: Da'kor, Era a Vapor e Futuro Distorcido.
 registrar_criatura(EnemySpec(
@@ -1335,6 +1328,94 @@ registrar_criatura(EnemySpec(
 ))
 
 
+# ============================================================
+# EXPANSÃO DO BESTIÁRIO — uma leva por era (proposta, não cânone)
+# ============================================================
+# Nomes, origens e comportamentos abaixo são EXPANSÃO SUGERIDA para SFA,
+# ainda não estabelecida no cânone da Bíblia do Universo.
+
+# ---------- Da'kor ----------
+registrar_criatura(EnemySpec(
+    "Raiz Sussurrante", "Da'kor", 2, 46, 10, 3, 20, 8, "espinhos",
+    "Raízes que sussurram o nome de quem passa; a casca devolve cada golpe em farpas.",
+))
+registrar_criatura(EnemySpec(
+    "Pária Afogado", "Da'kor", 3, 52, 11, 2, 24, 9, "ultimo_suspiro",
+    "Alguém que a névoa levou ao fundo e devolveu. Insiste em terminar uma travessia.",
+))
+registrar_criatura(EnemySpec(
+    "A Costureira de Neblina", "Da'kor", 3, 62, 10, 2, 44, 14, "espinhos",
+    "Cose a névoa em mortalhas com agulhas que nunca terminam.",
+    categoria="mini_chefe",
+))
+registrar_criatura(EnemySpec(
+    "O Pastor de Raízes", "Da'kor", 10, 150, 14, 4, 140, 40, "espinhos",
+    "Guia rebanhos de troncos pela névoa. Ninguém viu o rebanho voltar.",
+    categoria="chefe",
+))
+
+# ---------- Era a Vapor ----------
+registrar_criatura(EnemySpec(
+    "Foguista Oco", "Era a Vapor", 4, 58, 15, 3, 30, 12, "furia",
+    "Armadura de fornalha sem ninguém dentro. Quanto mais amassada, mais quente.",
+))
+registrar_criatura(EnemySpec(
+    "Aranha de Pistões", "Era a Vapor", 6, 68, 14, 5, 36, 14, "sangramento",
+    "Oito patas de pistão que tecem trilhos onde não havia chão.",
+))
+registrar_criatura(EnemySpec(
+    "Relojoeiro Encarnado", "Era a Vapor", 6, 84, 12, 4, 60, 18, "furia",
+    "Conserta relógios com as próprias engrenagens. Os relógios nunca batem a mesma hora.",
+    categoria="mini_chefe",
+))
+registrar_criatura(EnemySpec(
+    "O Maestro das Caldeiras", "Era a Vapor", 15, 180, 17, 5, 185, 50, "furia",
+    "Rege uma orquestra de válvulas. Quando a música acelera, a sala inteira pulsa.",
+    categoria="chefe",
+))
+
+# ---------- Futuro Distorcido ----------
+registrar_criatura(EnemySpec(
+    "Sombra do Ainda-Não", "Futuro Distorcido", 7, 72, 17, 3, 46, 20, "ultimo_suspiro",
+    "A sombra de algo que ainda não existe e já chegou atrasada.",
+))
+registrar_criatura(EnemySpec(
+    "Coro Sem Boca", "Futuro Distorcido", 9, 86, 18, 4, 55, 22, "furia",
+    "Vozes que cantam em uníssono sem garganta. Cada baixa deixa o coro mais alto.",
+))
+registrar_criatura(EnemySpec(
+    "Vigia do Intervalo", "Futuro Distorcido", 9, 98, 14, 3, 78, 24, "ultimo_suspiro",
+    "Guarda o instante entre dois segundos. Nunca deixou ninguém passar por ele inteiro.",
+    categoria="mini_chefe",
+))
+registrar_criatura(EnemySpec(
+    "O Arquivista do Amanhã", "Futuro Distorcido", 20, 215, 18, 5, 225, 60, "ultimo_suspiro",
+    "Cataloga fins que ainda não ocorreram. Se a sua ficha está incompleta, ele a completa.",
+    categoria="chefe",
+))
+
+# ---------- Criaturas EXCLUSIVAS de eventos ----------
+registrar_criatura(EnemySpec(
+    "Máscara Sussurrante", "Da'kor", 1, 38, 10, 2, 24, 8, "emboscada",
+    "Uma máscara sem rosto que chega por trás da vigília e repete o que você pensou.",
+    evento="halloween",
+))
+registrar_criatura(EnemySpec(
+    "Dançarino de Papel", "Era a Vapor", 5, 60, 14, 3, 34, 12, "sangramento",
+    "Recortes que dançam sozinhos nos fios da vigília. As bordas cortam.",
+    evento="halloween",
+))
+registrar_criatura(EnemySpec(
+    "Luz sem Casa", "Da'kor", 1, 34, 8, 1, 22, 6, "regenerar",
+    "Uma luz de janela sem janela. Reacende sempre que alguém tenta apagá-la.",
+    evento="natal",
+))
+registrar_criatura(EnemySpec(
+    "Presente sem Remetente", "Era a Vapor", 3, 66, 10, 6, 38, 12, "espinhos",
+    "Embrulho que ninguém deixou na névoa. Quem tenta abri-lo apanha.",
+    evento="natal",
+))
+
 
 def validar_catalogos() -> None:
     """Confere os catálogos ao carregar o cog e avisa sobre erros."""
@@ -1348,6 +1429,9 @@ def validar_catalogos() -> None:
     for chave, classe in CLASSES.items():
         if classe.tecnica is None or not callable(classe.tecnica.acao):
             log.warning("Classe '%s' está sem técnica válida.", chave)
+
+    for problema in validar_eventos():
+        log.warning("Evento/criatura inválido: %s", problema)
 
     log.info(
         "Catálogos carregados: %d classes, %d relíquias, "
@@ -1454,6 +1538,11 @@ class RunState:
     build: Optional["BuildAtivo"] = None
     build_efeito: Optional[Efeito] = None
 
+    # Evento temporal em andamento (veja a seção de eventos).
+    evento_ativo: Optional["EventoSpec"] = None
+    evento_restante: int = 0          # encontros que ainda faltam depois deste
+    evento_efeito: Optional[Efeito] = None
+
     # Estado de golpe/combate usado pelos efeitos da build.
     golpe_tecnica: bool = False
     golpe_ativa: bool = False
@@ -1473,7 +1562,8 @@ class RunState:
     def efeitos(self) -> list[Efeito]:
         """Passiva da classe + todas as relíquias, na ordem de aplicação."""
         build = [self.build_efeito] if self.build_efeito else []
-        return [self.classe.passiva, *build, *self.reliquias]
+        evento = [self.evento_efeito] if self.evento_efeito else []
+        return [self.classe.passiva, *build, *evento, *self.reliquias]
 
     def custo_tecnica(self) -> int:
         """Custo de Foco da técnica (a build pode reduzir em 1; mínimo 1)."""
@@ -1684,19 +1774,34 @@ def categoria_encontro(nivel: int) -> str:
     return "normal"
 
 
-def criar_inimigo(nivel: int) -> EnemyState:
-    """Escolhe um inimigo do tipo correto e aplica escala moderada."""
+def criar_inimigo(nivel: int, evento: "EventoSpec | None" = None) -> EnemyState:
+    """
+    Escolhe um inimigo do tipo correto e aplica escala moderada.
+
+    Criaturas com 'evento' preenchido só existem durante esse evento. O
+    evento ainda pode favorecer uma era e trazer exclusivas (chance própria).
+    """
     categoria = categoria_encontro(nivel)
-    disponiveis = [c for c in CRIATURAS if c.categoria == categoria]
+    chave_evento = evento.chave if evento else ""
+    base = [c for c in CRIATURAS if c.evento in ("", chave_evento)]
+    disponiveis = [c for c in base if c.categoria == categoria]
 
     if not disponiveis:
         categoria = "normal"
-        disponiveis = [c for c in CRIATURAS if c.categoria == "normal"]
+        disponiveis = [c for c in base if c.categoria == "normal"]
 
     elegiveis = [c for c in disponiveis if c.nivel_minimo <= nivel]
     if elegiveis:
         recentes = [c for c in elegiveis if c.nivel_minimo >= nivel - 6]
-        spec = random.choice(recentes or elegiveis)
+        pool = recentes or elegiveis
+        if evento is not None:
+            exclusivas = [c for c in pool if c.evento == evento.chave]
+            if exclusivas and random.random() < evento.chance_exclusiva:
+                pool = exclusivas
+            elif evento.era_favorita and random.random() < evento.chance_era:
+                favoritas = [c for c in pool if c.era == evento.era_favorita]
+                pool = favoritas or pool
+        spec = random.choice(pool)
     else:
         spec = min(disponiveis, key=lambda c: c.nivel_minimo)
 
@@ -1721,45 +1826,135 @@ def criar_inimigo(nivel: int) -> EnemyState:
     )
 
 
+# ------------------------------------------------------------
+# EVENTOS TEMPORAIS (com efeitos reais)
+# ------------------------------------------------------------
+# Um evento é sorteado no início de um encontro e dura 'duracao'
+# encontros. Ele NÃO é só texto: cada chave de 'efeitos' altera o jogo.
+#
+#   Lado da criatura (aplicado 1x ao gerar o inimigo; chefes e deuses
+#   sentem só parte, veja FATOR_EVENTO_CATEGORIA):
+#     inimigo_atq_pct   +% de ataque          inimigo_vida_pct  +% de vida
+#     inimigo_def       +defesa
+#   Lado do jogador (vale enquanto o evento durar):
+#     crit      +pontos de chance de crítico   dano_pct   +% de dano causado
+#     red_pct   -% de dano recebido
+#     foco      +Foco ao iniciar o combate     cura_pct   cura % da vida máx.
+#     barreira  +barreira ao iniciar o combate (respeita o teto da build)
+#   Recompensas:
+#     xp_pct        +% de XP por criatura
+#     moeda_chance  +pontos percentuais na chance de Abysmus (máx. +10,
+#                   o Abysmus continua raro)
+#
+# Além dos números, um evento pode: favorecer uma ERA (era_favorita +
+# chance_era) e trazer CRIATURAS EXCLUSIVAS (EnemySpec.evento == chave do
+# evento; aparecem com chance_exclusiva em encontros comuns).
+# Para criar um evento novo, copie um registrar_evento(...) abaixo.
+
+ERAS = ("Da'kor", "Era a Vapor", "Futuro Distorcido")
+
+# Limite de cada efeito (o registro recusa valores acima).
+CAPS_EVENTO = {
+    "inimigo_atq_pct": 30, "inimigo_vida_pct": 30, "inimigo_def": 3,
+    "crit": 15, "dano_pct": 20, "red_pct": 15, "foco": 1, "cura_pct": 15,
+    "barreira": 15, "xp_pct": 50, "moeda_chance": 10,
+}
+# Quanto de cada efeito "do lado da criatura" cada categoria sente.
+FATOR_EVENTO_CATEGORIA = {
+    "normal": 1.0, "mini_chefe": 0.75, "chefe": 0.5, "deus": 0.25,
+}
+
+_TEXTO_EVENTO = {
+    "inimigo_atq_pct": lambda v: f"criaturas causam +{v:g}% de dano",
+    "inimigo_vida_pct": lambda v: f"criaturas têm +{v:g}% de vida",
+    "inimigo_def": lambda v: f"criaturas têm +{v:g} de defesa",
+    "crit": lambda v: f"você tem +{v:g}% de chance de crítico",
+    "dano_pct": lambda v: f"você causa +{v:g}% de dano",
+    "red_pct": lambda v: f"você sofre -{v:g}% de dano",
+    "foco": lambda v: f"+{v:g} Foco ao iniciar cada combate",
+    "cura_pct": lambda v: f"você recupera {v:g}% da vida ao iniciar cada combate",
+    "barreira": lambda v: f"você começa o combate com +{v:g} de barreira",
+    "xp_pct": lambda v: f"+{v:g}% de XP",
+    "moeda_chance": lambda v: f"+{v:g} pontos de chance de Abysmus",
+}
+
+
 @dataclass(frozen=True)
 class EventoSpec:
-    """Evento ambiental expansível; não altera os atributos de combate."""
+    """Evento ambiental expansível, com efeitos reais no combate."""
     chave: str
     nome: str
     descricao: str
     chance: float = 0.03
     periodo: str = "sempre"  # sempre, halloween, natal
+    efeitos: tuple[tuple[str, float], ...] = ()
+    duracao: int = 1                 # encontros que o evento dura
+    era_favorita: str = ""           # favorece criaturas desta era
+    chance_era: float = 0.7          # chance de o favorecimento valer
+    chance_exclusiva: float = 0.0    # chance de surgir criatura exclusiva
 
 
 EVENTOS: dict[str, EventoSpec] = {}
 
 
 def registrar_evento(evento: EventoSpec) -> EventoSpec:
+    """Registra um evento validando chance, duração e efeitos."""
     if not 0 <= evento.chance <= 1:
         raise ValueError("A chance do evento deve estar entre 0 e 1.")
+    if evento.duracao < 1:
+        raise ValueError("A duração do evento deve ser de pelo menos 1 encontro.")
+    if evento.era_favorita and evento.era_favorita not in ERAS:
+        raise ValueError(f"Era desconhecida: {evento.era_favorita}")
+    for chave, valor in evento.efeitos:
+        if chave not in CAPS_EVENTO:
+            raise ValueError(f"Efeito de evento desconhecido: {chave}")
+        if not 0 < valor <= CAPS_EVENTO[chave]:
+            raise ValueError(
+                f"{chave}: o valor deve estar entre 0 e {CAPS_EVENTO[chave]}.")
     EVENTOS[evento.chave] = evento
     return evento
+
+
+def texto_evento(evento: EventoSpec) -> str:
+    """Resumo legível dos efeitos (usado no aviso e no embed da run)."""
+    partes = [_TEXTO_EVENTO[c](v) for c, v in evento.efeitos]
+    if evento.era_favorita:
+        partes.append(f"favorece criaturas de {evento.era_favorita}")
+    if evento.chance_exclusiva:
+        partes.append("criaturas exclusivas podem surgir")
+    return "; ".join(partes) or "sem efeitos"
 
 
 registrar_evento(EventoSpec(
     "lua_sangrenta", "Lua Sangrenta",
     "A lua se abre como uma ferida sobre Da'kor. A névoa fica vermelha.",
-    0.035,
+    0.035, duracao=2, era_favorita="Da'kor", chance_era=0.6,
+    efeitos=(("inimigo_atq_pct", 15), ("crit", 8), ("xp_pct", 30),
+             ("moeda_chance", 5)),
+))
+registrar_evento(EventoSpec(
+    "mare_de_fuligem", "Maré de Fuligem",
+    "As chaminés de uma era que ainda não terminou cospem cinzas sobre a névoa.",
+    0.03, duracao=2, era_favorita="Era a Vapor", chance_era=0.7,
+    efeitos=(("inimigo_def", 2), ("barreira", 8), ("xp_pct", 20)),
 ))
 registrar_evento(EventoSpec(
     "noite_alien", "Noite Alienígena",
     "Luzes desconhecidas atravessam o céu e desaparecem dentro da névoa.",
-    0.025,
+    0.025, era_favorita="Futuro Distorcido", chance_era=0.7,
+    efeitos=(("foco", 1), ("inimigo_vida_pct", 10), ("xp_pct", 20)),
 ))
 registrar_evento(EventoSpec(
     "halloween", "Vigília de Halloween",
     "Vozes mascaradas ecoam entre as árvores. Só surge entre 20 de outubro e 2 de novembro.",
-    0.08, "halloween",
+    0.08, "halloween", chance_exclusiva=0.5,
+    efeitos=(("xp_pct", 25), ("moeda_chance", 8), ("dano_pct", 5)),
 ))
 registrar_evento(EventoSpec(
     "natal", "Natal em Da'kor",
     "Pequenas luzes surgem na névoa, embora não exista nenhuma casa por perto. Só surge entre 15 de dezembro e 5 de janeiro.",
-    0.08, "natal",
+    0.08, "natal", chance_exclusiva=0.5,
+    efeitos=(("cura_pct", 12), ("foco", 1), ("inimigo_atq_pct", 10)),
 ))
 
 
@@ -1787,10 +1982,104 @@ def sortear_evento() -> EventoSpec | None:
     return None
 
 
+def aplicar_evento_inimigo(evento: EventoSpec, inimigo: "EnemyState") -> None:
+    """Aplica 1x os efeitos do evento à criatura (chefes sentem menos)."""
+    fator = FATOR_EVENTO_CATEGORIA.get(inimigo.spec.categoria, 1.0)
+    for chave, valor in evento.efeitos:
+        if chave == "inimigo_atq_pct":
+            inimigo.ataque = max(1, int(inimigo.ataque * (1 + valor * fator / 100)))
+        elif chave == "inimigo_vida_pct":
+            vida = max(1, int(inimigo.vida_maxima * (1 + valor * fator / 100)))
+            inimigo.vida = inimigo.vida_maxima = vida
+        elif chave == "inimigo_def":
+            inimigo.defesa += int(round(valor * fator))
+
+
+def bonus_evento(run: "RunState") -> tuple[float, float]:
+    """(xp_pct, moeda_pontos) do evento ativo; (0, 0) sem evento."""
+    if run.evento_ativo is None:
+        return 0.0, 0.0
+    efeitos = dict(run.evento_ativo.efeitos)
+    return efeitos.get("xp_pct", 0.0), efeitos.get("moeda_chance", 0.0)
+
+
+class EfeitoEvento(Efeito):
+    """Parte do evento que atua no JOGADOR, pelos mesmos hooks do motor."""
+
+    nome = "Evento"
+    descricao = "Efeitos do evento temporal em andamento."
+
+    def __init__(self, evento: EventoSpec):
+        self.evento = evento
+        self.v = dict(evento.efeitos)
+
+    def bonus_critico(self, run) -> int:
+        return int(self.v.get("crit", 0))
+
+    def modificar_dano_causado(self, run, ataque) -> int:
+        pct = self.v.get("dano_pct", 0)
+        return int(ataque.dano * (1 + pct / 100)) if pct else ataque.dano
+
+    def modificar_dano_recebido(self, run, dano: int) -> int:
+        red = self.v.get("red_pct", 0)
+        if red and dano > 0:
+            return max(1, int(dano * (1 - red / 100)))
+        return dano
+
+    def ao_iniciar_combate(self, run, inimigo) -> None:
+        foco = int(self.v.get("foco", 0))
+        if foco and run.ganhar_foco(foco):
+            run.log.append(f"🌌 {self.evento.nome}: +{foco} Foco.")
+        cura = self.v.get("cura_pct", 0)
+        if cura:
+            real = run.curar(max(1, int(run.vida_maxima * cura / 100)))
+            if real:
+                run.log.append(f"🌌 {self.evento.nome}: você recupera {real} de vida.")
+        barreira = int(self.v.get("barreira", 0))
+        if barreira:
+            ganho = adicionar_barreira(run, barreira)
+            if ganho:
+                run.log.append(f"🌌 {self.evento.nome}: +{ganho} de barreira.")
+
+
+def validar_eventos() -> list[str]:
+    """Confere eventos e criaturas exclusivas (roda ao carregar o cog)."""
+    problemas = []
+    for evento in EVENTOS.values():
+        exclusivas = [c for c in CRIATURAS if c.evento == evento.chave]
+        if evento.chance_exclusiva and not exclusivas:
+            problemas.append(f"Evento '{evento.chave}' prevê exclusivas, mas não há criaturas.")
+        if evento.era_favorita and not any(
+                c.era == evento.era_favorita and c.categoria == "normal"
+                for c in CRIATURAS):
+            problemas.append(f"Evento '{evento.chave}': era sem criaturas comuns.")
+    for criatura in CRIATURAS:
+        if criatura.evento and criatura.evento not in EVENTOS:
+            problemas.append(f"Criatura '{criatura.nome}' usa evento inexistente '{criatura.evento}'.")
+        if criatura.era not in ERAS + ("Além da Névoa",):
+            problemas.append(f"Criatura '{criatura.nome}': era desconhecida '{criatura.era}'.")
+    return problemas
+
+
 def preparar_combate(run: RunState) -> None:
-    """Gera a próxima criatura, sorteia evento e dispara os hooks."""
-    run.inimigo = criar_inimigo(run.nivel)
+    """Sorteia o evento, gera a próxima criatura e dispara os hooks."""
+    # Evento: continua o atual (duracao > 1) ou sorteia um novo.
+    anuncio = ""
+    if run.evento_ativo is not None and run.evento_restante > 0:
+        run.evento_restante -= 1
+        anuncio = "continua"
+    else:
+        run.evento_ativo = sortear_evento()
+        run.evento_restante = (run.evento_ativo.duracao - 1
+                               if run.evento_ativo else 0)
+        anuncio = "novo" if run.evento_ativo else ""
+    evento = run.evento_ativo
+    run.evento_efeito = EfeitoEvento(evento) if evento else None
+
+    run.inimigo = criar_inimigo(run.nivel, evento)
     inimigo = run.inimigo
+    if evento is not None:
+        aplicar_evento_inimigo(evento, inimigo)
 
     # Estado de combate zerado: cada luta começa limpa e previsível.
     run.turno = 0
@@ -1815,10 +2104,15 @@ def preparar_combate(run: RunState) -> None:
             f"🛡️ Seus itens formam {run.barreira_inicial} de barreira."
         )
 
-    evento = sortear_evento()
     if evento is not None:
-        run.log.append(f"🌌 **EVENTO: {evento.nome}** — {evento.descricao}")
-        run.evento(f"Evento temporal: {evento.nome} | {evento.descricao}")
+        if anuncio == "novo":
+            run.log.append(
+                f"🌌 **EVENTO: {evento.nome}** — {evento.descricao}\n"
+                f"↳ Efeitos: {texto_evento(evento)}.")
+        else:
+            run.log.append(f"🌌 O evento **{evento.nome}** continua.")
+        run.evento(f"Evento temporal ({anuncio}): {evento.nome} | "
+                   f"restam {run.evento_restante} encontro(s) | {texto_evento(evento)}")
 
     run.evento(
         f"Combate iniciado contra {inimigo.spec.nome} "
@@ -4083,6 +4377,13 @@ def criar_embed(
         color=discord.Color.dark_purple(),
     )
 
+    if run.evento_ativo is not None:
+        restam = run.evento_restante
+        embed.add_field(
+            name=f"🌌 Evento: {run.evento_ativo.nome}"
+                 + (f" (mais {restam} encontro(s))" if restam else ""),
+            value=texto_evento(run.evento_ativo)[:1024], inline=False)
+
     if inimigo:
         habilidade = inimigo.habilidade
         efeitos_inimigo = []
@@ -5119,7 +5420,8 @@ class RupturaTemporal(commands.Cog):
         multiplicador_xp = {
             "normal": 1.0, "mini_chefe": 1.8, "chefe": 2.7, "deus": 4.5,
         }.get(categoria, 1.0)
-        xp_ganho = max(1, int(spec.xp * multiplicador_xp))
+        xp_evento, moeda_evento = bonus_evento(run)
+        xp_ganho = max(1, int(spec.xp * multiplicador_xp * (1 + xp_evento / 100)))
 
         chance_moeda = {
             "normal": CHANCE_MOEDA_NORMAL,
@@ -5127,6 +5429,8 @@ class RupturaTemporal(commands.Cog):
             "chefe": CHANCE_MOEDA_CHEFE,
             "deus": CHANCE_MOEDA_DEUS,
         }.get(categoria, CHANCE_MOEDA_NORMAL)
+        # O evento aumenta a chance, mas o Abysmus continua raro (máx. +10 pp).
+        chance_moeda = min(1.0, chance_moeda + min(10.0, moeda_evento) / 100)
         moedas = 0
         if random.random() < chance_moeda:
             limites = {
