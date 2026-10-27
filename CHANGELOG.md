@@ -2,6 +2,80 @@
 
 Todas as mudanças relevantes do projeto serão registradas neste arquivo.
 
+## [26/10/2026] — Ruptura Temporal: Expansão 3 (mini-Chefes e Chefes por era)
+
+### ✨ Adicionado
+
+- **36 criaturas novas**: **18 mini-Chefes** e **18 Chefes**, sendo **6 mini-Chefes e 6
+  Chefes por era** (`Da'kor`, `Era a Vapor` e `Futuro Distorcido`). Nenhuma criatura
+  normal, era, item, relíquia, evento, moeda ou tabela foi criada.
+- **36 habilidades exclusivas**, uma por criatura, todas ligadas ao combate por
+  `HabilidadeInimiga`, `modificar_ataque`, `reduzir_dano_recebido`, `apos_golpe`,
+  `ao_turno` ou `escolher_acao`.
+- **`Da'kor`** — mini-Chefes (nível 3): Vigia da Ponte Quebrada, Afiador de Ossos, Coro de
+  Afogados, A Costureira de Sombras, Máscara do Primeiro Rosto e Contador de Ossos.
+  Chefes (níveis 5 e 10): O Barqueiro de Ossos, A Mãe das Máscaras, O Coletor de Dívidas,
+  O Pastor de Máscaras, A Viúva do Farol e O Arquivista de Nomes.
+- **`Era a Vapor`** — mini-Chefes (nível 6): A Caldeira Que Respira, Ladrão de Segundos,
+  Sentinela da Válvula Mestra, Fundidor de Placas, Aranha de Válvulas e Maquinista de
+  Cinzas. Chefes (níveis 10, 15 e 20): O Engenheiro-Chefe, A Fornalha Viva, O Titereiro de
+  Válvulas, A Dama de Latão, O Relojoeiro do Fim e A Catedral de Carvão.
+- **`Futuro Distorcido`** — mini-Chefes (nível 9): Tecelã de Miragens, Devorador de
+  Minutos, Arauto das Palavras Gastas, Sombra do Instante Perdido, Ponteiro Parado e Fome
+  do Amanhã. Chefes (níveis 15, 20 e 25): O Espelho do Último Dia, A Fenda que Escuta, O
+  Colecionador de Futuros, A Criança que Não Foi, O Devorador de Conclusões e A Última
+  Testemunha.
+
+### ⚔️ Mecânicas
+
+- **Mini-Chefes** usam efeitos curtos e legíveis: pedágio em Foco, golpe carregado que
+  expõe a criatura, cura com dreno, fios que absorvem até romper, cópia de gesto,
+  contagem de golpes, limpeza de status, bloqueio do próximo ataque, defesa que vira
+  ataque, placas de proteção, respingo escaldante, dreno de Foco, miragem dissipada por
+  Técnica, dreno de tempo, palavras acumuladas, ausência que reduz dano, bloqueio com
+  devolução de Foco e fome acumulada.
+- **Chefes** usam uma ação própria na cadência/condição e delegam o restante para
+  `escolher_acao_chefe()`: travessia com sangramento, alternância pedra/fome, cobrança
+  por bens equipados, espinhos, marca do farol, redução do ataque do jogador, linha de
+  montagem, combustão que consome barreira, fios cruzados, faces de latão, atraso do
+  próximo movimento, oferenda de itens, reflexo do último dano, sussurro que expõe a
+  criatura, colheita de Técnicas, ausência planejada, execução abaixo de 40% de vida e
+  espelhamento de ações.
+- **Contrajogo garantido:** toda ação telegrafada usa `prepara=True` e
+  `interrompivel=True`, sendo cancelada por **Guardar** ou **atordoamento**. Dano direto
+  de habilidade respeita a barreira e nunca leva a vida do jogador abaixo de 1; quando o
+  recurso de uma habilidade (Foco, item ou barreira) está ausente, ela apenas perde o
+  efeito extra, sem erro de combate.
+
+### 🛡️ Compatibilidade
+
+- Cadência de encontros inalterada: mini-Chefe em níveis múltiplos de 3 (exceto múltiplos
+  de 5), Chefe em múltiplos de 5, Deuses intactos.
+- Nenhuma mudança em `main.py`, `cogs/XpAndCoins.py`, esquema SQLite, `.env`, relíquias,
+  itens, forja, mercador, progressão ou regras de fim de run.
+- Recompensas continuam usando as fórmulas existentes (`xp` da criatura × multiplicador
+  de categoria, sem Abysmus de abate); as 36 criaturas entram nos pools que o motor já
+  consulta.
+
+### 🧪 Validação
+
+- `test_ruptura.py` ampliado de **74 para 89 testes**.
+- `.venv/bin/python -m unittest test_ruptura -q` — **89 testes, OK** (~0,87 s).
+- `.venv/bin/python -m unittest discover -q` — **89 testes, OK** (~0,91 s).
+- `.venv/bin/python -m py_compile main.py cogs/*.py test_ruptura.py` — OK.
+- `validar_catalogos()` — sem erros.
+- `git diff --check` — sem problemas.
+
+### 📁 Arquivos
+
+- `cogs/ruptura.py` — 36 habilidades, 36 `EnemySpec` e ajuste de `LuzDoFarol`.
+- `test_ruptura.py` — catálogo, habilidades, integração, cadência, recompensas e
+  contrajogo.
+- `README.md`, `CHANGELOG.md`, `docs/PROJECT_AUDIT.md`, `docs/COGS_REVIEW.md` e
+  `docs/RUPTURA_ROADMAP.md` — contagens, nomes, mecânicas e resultados reais.
+
+---
+
 ## [26/10/2026] — Ruptura Temporal: liberação de estado PvP em falhas de interação
 
 ### 🐛 Corrigido

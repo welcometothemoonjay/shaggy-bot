@@ -14,7 +14,8 @@ balanceamento.
 > compartilhada entre PvE e PvP. A validação da concorrência confirmou que a reserva de
 > estado é atômica no event loop. Na mesma rodada, o problema P-11 (vazamento de
 > `ocupados` em falha de interação no PvP) foi corrigido. A suíte passou de 66 para 74
-> testes. Os demais achados continuam como estavam na auditoria original.
+> testes; a Expansão 3 depois a levou a 89. Os demais achados continuam como estavam na
+> auditoria original.
 
 ---
 
@@ -23,7 +24,7 @@ balanceamento.
 O projeto está funcional e tem uma base acima da média para um bot de Discord: economia
 centralizada, transações SQLite explícitas nos fluxos de dinheiro, boa separação entre
 regras e interface na Ruptura, validadores de catálogo e uma suíte automatizada real
-(74 testes) para o sistema mais complexo.
+(89 testes) para o sistema mais complexo.
 
 Os principais achados são de **integração e ciclo de vida**, não de “jogo quebrado”:
 
@@ -64,8 +65,8 @@ suíte; as validações dessas alterações estão registradas no fim desta seç
 | --- | --- | --- |
 | Compilação | `.venv/bin/python -m py_compile main.py cogs/*.py test_ruptura.py` | OK |
 | Importação dos Cogs | importação programática dos 17 módulos | 17/17 OK |
-| Suíte principal | `.venv/bin/python -m unittest test_ruptura -v` | 74 testes, OK |
-| Descoberta | `.venv/bin/python -m unittest discover -v` | 74 testes, OK |
+| Suíte principal | `.venv/bin/python -m unittest test_ruptura -v` | 89 testes, OK |
+| Descoberta | `.venv/bin/python -m unittest discover -v` | 89 testes, OK |
 | Corrida PvE/PvP | duas `iniciar_run()` com `asyncio.gather` | 1 run criada, 1 bloqueada |
 | Catálogo | `validar_catalogos()` | sem erro |
 | Árvores | `validar_arvores()` | `[]` |
@@ -86,7 +87,7 @@ inspecionados para conferir a configuração documentada.
 
 | Arquivo | Linhas |
 | --- | ---: |
-| `cogs/ruptura.py` | 8.107 |
+| `cogs/ruptura.py` | 9.551 |
 | `cogs/noticias_ia.py` | 3.101 |
 | `cogs/cassino.py` | 2.405 |
 | `cogs/badges.py` | 2.313 |
@@ -94,7 +95,7 @@ inspecionados para conferir a configuração documentada.
 | `cogs/pet.py` | 1.525 |
 | `cogs/ruptura_pvp.py` | 1.353 |
 | `cogs/games.py` | 1.173 |
-| `test_ruptura.py` | 1.112 |
+| `test_ruptura.py` | 2.021 |
 | `cogs/XpAndCoins.py` | 1.088 |
 | `cogs/ruptura_extras.py` | 1.055 |
 | `cogs/mystic.py` | 1.038 |
@@ -106,7 +107,7 @@ inspecionados para conferir a configuração documentada.
 | `cogs/social.py` | 222 |
 | `main.py` | 136 |
 
-Total aproximado: **30.340 linhas** em 20 arquivos Python (incluindo `cogs/__init__.py`,
+Total aproximado: **32.768 linhas** em 20 arquivos Python (incluindo `cogs/__init__.py`,
 vazio).
 
 ### 3.2 Carregamento
@@ -188,17 +189,20 @@ Contagens obtidas por importação do módulo, não por estimativa:
 | — consumíveis | 8 |
 | — artefatos | 5 |
 | — estratégicos | 5 |
-| Criaturas | 55 |
+| Criaturas | 91 |
 | — normais | 39 |
-| — Chefes | 8 |
-| — mini-Chefes | 6 |
+| — Chefes | 26 |
+| — mini-Chefes | 24 |
 | — Deuses | 2 |
 | Eventos | 12 |
-| Habilidades de criatura | 32 |
+| Habilidades de criatura | 68 |
 
-A expansão mais recente adicionou 20 criaturas (18 normais, 6 por era, e 2 sazonais) e
-20 habilidades exclusivas. Os validadores de catálogo, árvore e evento não acusaram
-problemas.
+Duas expansões somam 56 criaturas: 20 normais (18 por era + 2 sazonais) e 36
+mini-Chefes/Chefes (18 de cada categoria, 6 por era). A Expansão 3 adicionou 36
+criaturas e 36 habilidades exclusivas, distribuídas em `Da'kor` (níveis 3, 5 e 10),
+`Era a Vapor` (6, 10, 15 e 20) e `Futuro Distorcido` (9, 15, 20 e 25). Nenhuma tabela,
+fórmula, relíquia, item ou evento mudou. Os validadores de catálogo, árvore e evento não
+acusaram problemas.
 
 ---
 
@@ -231,7 +235,7 @@ A avaliação detalhada e comparativa está em [`COGS_REVIEW.md`](COGS_REVIEW.md
 - **`XpAndCoins`** — núcleo estável e transacional; principal risco é o SQLite síncrono no
   caminho de XP e a ausência de reconciliação de recompensas.
 - **`ruptura`** — sistema mais rico e mais crítico; funciona, mas concentra motor, dados e
-  UI em 8.107 linhas e descarta runs no unload.
+  UI em 9.551 linhas e descarta runs no unload.
 - **`ruptura_pvp`** — reutiliza bem o motor; falha na reciprocidade da guarda de estado com
   o PvE.
 - **`ruptura_extras`** — ranking e IA funcionam; falta separar repositório, integração e
@@ -433,7 +437,7 @@ tela já está ativa e tem timeout. Coberto por `TestLiberacaoEstadoPvP` em
 
 ### D-01 — Monólito `ruptura.py`
 
-8.107 linhas concentram catálogo, efeitos, combate, eventos, itens, mercado, build,
+9.551 linhas concentram catálogo, efeitos, combate, eventos, itens, mercado, build,
 persistência e UI. A separação lógica existe por seções, mas não física. Isso aumenta o
 custo de revisão, o tempo de importação e o risco de conflitos.
 
@@ -638,7 +642,7 @@ ajudar a reduzir o monólito sem aumentar a superfície de comandos.
 
 ```text
 $ .venv/bin/python -m unittest test_ruptura -v
-Ran 74 tests in 0.270s
+Ran 89 tests in 0.866s
 OK
 ```
 
@@ -657,6 +661,10 @@ Classes de teste em `test_ruptura.py`:
 - `TestLiberacaoEstadoPvP` — liberação de `ocupados` em falhas de interação e reserva
   atômica de duas runs concorrentes.
 - `TestEmbeds` — conteúdo e limites de embed.
+- `TestHabilidadesExpansao3` — as 36 habilidades novas, telegrafia/interrupção,
+  esgotamento de recursos e contrajogo.
+- `TestIntegracaoExpansao3` — pool de encontros, cadência inalterada, início/fim de run e
+  reutilização das fórmulas de recompensa.
 
 Nenhum teste usa o banco real: os testes de persistência patcham `DB_PATH` para um
 diretório temporário.

@@ -67,10 +67,45 @@ máximo possível.
 - **12 relíquias**.
 - **27 itens** no mercado: **9 passivos**, **8 consumíveis**, **5 artefatos** e
   **5 estratégicos**.
-- **55 criaturas**: **39 normais**, **8 Chefes**, **6 mini-Chefes** e **2 Deuses**.
-  A expansão mais recente adicionou **20 criaturas** (18 normais, 6 por era, e 2 sazonais).
-- **32 habilidades de criatura**, incluindo as habilidades exclusivas das criaturas novas.
+- **91 criaturas**: **39 normais**, **26 Chefes**, **24 mini-Chefes** e **2 Deuses**.
+  Duas expansões somam **56 criaturas**: 20 normais (18 por era + 2 sazonais) e 36
+  mini-Chefes/Chefes (18 de cada categoria, 6 por era).
+- **68 habilidades de criatura**, incluindo as habilidades exclusivas das criaturas novas.
 - **12 eventos**: 3 base, 6 sazonais e 3 dinâmicos com escolhas.
+
+**Expansão 3 — mini-Chefes e Chefes**
+
+- **Da'kor** — mini-Chefes: Vigia da Ponte Quebrada, Afiador de Ossos, Coro de Afogados,
+  A Costureira de Sombras, Máscara do Primeiro Rosto e Contador de Ossos. Chefes: O
+  Barqueiro de Ossos, A Mãe das Máscaras, O Coletor de Dívidas, O Pastor de Máscaras, A
+  Viúva do Farol e O Arquivista de Nomes.
+  *Mecânicas:* pedágio em Foco, golpe carregado que expõe a criatura, cura com dreno,
+  fios que absorvem até romper, cópia de gesto e contagem de golpes; nos Chefes,
+  travessia telegrafada com sangramento, alternância pedra/fome, cobrança por bens
+  equipados, espinhos, marca do farol e redução do ataque do jogador.
+- **Era a Vapor** — mini-Chefes: A Caldeira Que Respira, Ladrão de Segundos, Sentinela da
+  Válvula Mestra, Fundidor de Placas, Aranha de Válvulas e Maquinista de Cinzas. Chefes:
+  O Engenheiro-Chefe, A Fornalha Viva, O Titereiro de Válvulas, A Dama de Latão, O
+  Relojoeiro do Fim e A Catedral de Carvão.
+  *Mecânicas:* limpeza de status, bloqueio do próximo ataque, defesa que vira ataque com
+  a válvula aberta, placas de proteção, respingo escaldante e dreno de Foco; nos Chefes,
+  montagem de peças, combustão que consome barreira, fios telegrafados, faces que
+  alternam remendo e corte, atraso do próximo movimento e oferenda que converte itens em
+  cura e ataque.
+- **Futuro Distorcido** — mini-Chefes: Tecelã de Miragens, Devorador de Minutos, Arauto
+  das Palavras Gastas, Sombra do Instante Perdido, Ponteiro Parado e Fome do Amanhã.
+  Chefes: O Espelho do Último Dia, A Fenda que Escuta, O Colecionador de Futuros, A
+  Criança que Não Foi, O Devorador de Conclusões e A Última Testemunha.
+  *Mecânicas:* miragem dissipada por Técnica, dreno de tempo, palavras que acumulam dano,
+  ausência que reduz o dano recebido, bloqueio com devolução de Foco e fome acumulada;
+  nos Chefes, reflexo telegrafado, exposição durante o sussurro, colheita de Técnicas,
+  ausência planejada, execução antecipada abaixo de 40% de vida e espelhamento de ações.
+
+Toda ação especial de Chefe é telegrafada e interrompível por **Guardar** ou
+**atordoamento**; nenhuma delas causa dano inevitável. Mini-Chefes usam efeitos de curta
+duração com resposta imediata (Guarda, Técnica, barreira ou gestão de Foco). O bestiário
+dinâmico (`s!bestiario`) passa a listar e descrever as **91 criaturas** automaticamente,
+sem catálogo paralelo.
 
 **Combate tático**
 
@@ -171,7 +206,7 @@ Universo de fantasia sombria e horror cósmico que inspira parte do conteúdo.
 shaggy-bot/
 ├── main.py                  # Bot, carregamento automático dos Cogs e sincronização
 ├── requirements.txt         # Dependências de execução
-├── test_ruptura.py          # Única suíte automatizada do repositório (74 testes)
+├── test_ruptura.py          # Única suíte automatizada do repositório (89 testes)
 ├── cogs/
 │   ├── XpAndCoins.py        # Economia central: XP, níveis, Abysmus, transações
 │   ├── ruptura.py           # Motor da Ruptura: catálogo, combate, build, mercado, UI
@@ -410,8 +445,8 @@ A única suíte automatizada do repositório é `test_ruptura.py`:
 .venv/bin/python -m unittest discover -v
 ```
 
-Resultado da auditoria e das correções BUG-01/BUG-05: **74 testes, todos aprovados**. A
-suíte não precisa de Discord conectado e usa banco temporário.
+Resultado da auditoria, das correções BUG-01/BUG-05 e da Expansão 3: **89 testes, todos
+aprovados**. A suíte não precisa de Discord conectado e usa banco temporário.
 
 Validações complementares executadas na auditoria:
 

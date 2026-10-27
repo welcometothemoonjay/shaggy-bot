@@ -71,6 +71,73 @@ TODAS_NOVAS = {
     nome for nomes in NOVAS_POR_ERA.values() for nome in nomes
 } | set(NOVAS_SAZONAIS)
 
+# Expansão 3: 6 mini-chefes + 6 chefes por era.
+NOVOS_MINI_POR_ERA = {
+    "Da'kor": (
+        "Vigia da Ponte Quebrada",
+        "Afiador de Ossos",
+        "Coro de Afogados",
+        "A Costureira de Sombras",
+        "Máscara do Primeiro Rosto",
+        "Contador de Ossos",
+    ),
+    "Era a Vapor": (
+        "A Caldeira Que Respira",
+        "Ladrão de Segundos",
+        "Sentinela da Válvula Mestra",
+        "Fundidor de Placas",
+        "Aranha de Válvulas",
+        "Maquinista de Cinzas",
+    ),
+    "Futuro Distorcido": (
+        "Tecelã de Miragens",
+        "Devorador de Minutos",
+        "Arauto das Palavras Gastas",
+        "Sombra do Instante Perdido",
+        "Ponteiro Parado",
+        "Fome do Amanhã",
+    ),
+}
+
+NOVOS_CHEFES_POR_ERA = {
+    "Da'kor": (
+        "O Barqueiro de Ossos",
+        "A Mãe das Máscaras",
+        "O Coletor de Dívidas",
+        "O Pastor de Máscaras",
+        "A Viúva do Farol",
+        "O Arquivista de Nomes",
+    ),
+    "Era a Vapor": (
+        "O Engenheiro-Chefe",
+        "A Fornalha Viva",
+        "O Titereiro de Válvulas",
+        "A Dama de Latão",
+        "O Relojoeiro do Fim",
+        "A Catedral de Carvão",
+    ),
+    "Futuro Distorcido": (
+        "O Espelho do Último Dia",
+        "A Fenda que Escuta",
+        "O Colecionador de Futuros",
+        "A Criança que Não Foi",
+        "O Devorador de Conclusões",
+        "A Última Testemunha",
+    ),
+}
+
+TODOS_ESPECIAIS = {
+    nome for nomes in (*NOVOS_MINI_POR_ERA.values(),
+                       *NOVOS_CHEFES_POR_ERA.values()) for nome in nomes
+}
+
+NIVEIS_MINI = {"Da'kor": 3, "Era a Vapor": 6, "Futuro Distorcido": 9}
+NIVEIS_CHEFE = {
+    "Da'kor": {5, 10},
+    "Era a Vapor": {10, 15, 20},
+    "Futuro Distorcido": {15, 20, 25},
+}
+
 # Efeitos esperados por tipo, conforme a expansão aprovada.
 QTD_ITENS = {"passivo": 9, "consumivel": 8, "artefato": 5, "estrategico": 5}
 
@@ -187,10 +254,72 @@ class TestCatalogo(unittest.TestCase):
         categorias = {c.categoria for c in rt.CRIATURAS}
         self.assertTrue({"normal", "mini_chefe", "chefe", "deus"}
                         <= categorias)
-        # A expansão não criou novos chefes/deuses nem mudou a raridade.
+        # A Expansão 2 (criaturas normais) não criou chefes nem deuses.
         for c in rt.CRIATURAS:
             if c.nome in TODAS_NOVAS:
                 self.assertNotIn(c.categoria, ("mini_chefe", "chefe", "deus"))
+
+    def test_expansao3_tem_seis_mini_e_seis_chefes_por_era(self):
+        self.assertEqual(len(TODOS_ESPECIAIS), 36)
+        nomes = [c.nome for c in rt.CRIATURAS]
+        self.assertEqual(len(nomes), len(set(nomes)))
+        for era, mini_nomes in NOVOS_MINI_POR_ERA.items():
+            mini = [c for c in rt.CRIATURAS if c.nome in mini_nomes]
+            self.assertEqual(len(mini), 6, era)
+            self.assertEqual({c.categoria for c in mini}, {"mini_chefe"})
+            self.assertEqual({c.era for c in mini}, {era})
+
+        for era, chefe_nomes in NOVOS_CHEFES_POR_ERA.items():
+            chefes = [c for c in rt.CRIATURAS if c.nome in chefe_nomes]
+            self.assertEqual(len(chefes), 6, era)
+            self.assertEqual({c.categoria for c in chefes}, {"chefe"})
+            self.assertEqual({c.era for c in chefes}, {era})
+
+        self.assertFalse(TODOS_ESPECIAIS & TODAS_NOVAS)
+
+    def test_expansao3_usa_niveis_e_habilidades_exclusivas(self):
+        for era, nomes in NOVOS_MINI_POR_ERA.items():
+            for c in (c for c in rt.CRIATURAS if c.nome in nomes):
+                self.assertEqual(c.nivel_minimo, NIVEIS_MINI[era])
+                self.assertEqual(c.evento, "")
+                self.assertTrue(c.descricao.strip())
+
+        for era, nomes in NOVOS_CHEFES_POR_ERA.items():
+            for c in (c for c in rt.CRIATURAS if c.nome in nomes):
+                self.assertIn(c.nivel_minimo, NIVEIS_CHEFE[era])
+                self.assertEqual(c.evento, "")
+                self.assertTrue(c.descricao.strip())
+
+        chaves = [c.habilidade for c in rt.CRIATURAS
+                  if c.nome in TODOS_ESPECIAIS]
+        self.assertEqual(len(chaves), 36)
+        self.assertEqual(len(chaves), len(set(chaves)))
+        for chave in chaves:
+            self.assertIn(chave, rt.HABILIDADES)
+            hab = rt.HABILIDADES[chave]
+            self.assertIsNot(type(hab), rt.HabilidadeInimiga)
+            self.assertTrue(hab.nome.strip())
+            self.assertTrue(hab.descricao.strip())
+
+    def test_expansao3_respeita_faixas_de_atributos(self):
+        for c in (c for c in rt.CRIATURAS if c.nome in TODOS_ESPECIAIS):
+            if c.categoria == "mini_chefe":
+                self.assertLessEqual(58, c.vida)
+                self.assertLessEqual(c.vida, 100)
+                self.assertLessEqual(10, c.ataque)
+                self.assertLessEqual(c.ataque, 15)
+                self.assertLessEqual(42, c.xp)
+                self.assertLessEqual(c.xp, 84)
+            else:
+                self.assertLessEqual(100, c.vida)
+                self.assertLessEqual(c.vida, 245)
+                self.assertLessEqual(13, c.ataque)
+                self.assertLessEqual(c.ataque, 20)
+                self.assertLessEqual(100, c.xp)
+                self.assertLessEqual(c.xp, 280)
+            self.assertLessEqual(0, c.defesa)
+            self.assertLessEqual(c.defesa, 6)
+            self.assertGreater(c.abysmus, 0)
 
 
 class TestEventos(unittest.TestCase):
@@ -1297,6 +1426,595 @@ class TestEmbeds(unittest.TestCase):
         run.evento_ativo = rt.EVENTOS["voz_na_nevoa"]
         escolha = rt.criar_embed_escolha(run)
         self.assertIn("Escolha uma opção", [f.name for f in escolha.fields])
+
+
+class TestHabilidadesExpansao3(unittest.TestCase):
+    """Cada nova habilidade precisa mudar o combate e ter contrajogo."""
+
+    def setUp(self):
+        self.run = None
+
+    def preparar(self, nome: str):
+        spec = next(c for c in rt.CRIATURAS if c.nome == nome)
+        self.run = novo_run(
+            vida=1000, vida_maxima=1000, ataque=20, defesa=0,
+            nivel=spec.nivel_minimo, foco=5,
+        )
+        self.run.bonus_critico_itens = -100
+        with patch.object(rt.random, "choice", return_value=spec):
+            inimigo = rt.criar_inimigo(
+                spec.nivel_minimo, categoria=spec.categoria)
+        self.run.inimigo = inimigo
+        return self.run, inimigo
+
+    def golpe(self, **kwargs):
+        # randint(a, b) -> a: dano baixo e nunca crítico (bônus -100).
+        with patch.object(rt.random, "randint", side_effect=lambda a, b: a):
+            return rt.executar_ataque(self.run, nunca_erra=True, **kwargs)
+
+    def turno(self, sem_acao_padrao: bool = True):
+        contexto = patch.object(rt.random, "randint", return_value=0)
+        with contexto:
+            if sem_acao_padrao:
+                with patch.object(rt, "escolher_acao_chefe", return_value=None):
+                    rt.turno_inimigo(self.run)
+            else:
+                rt.turno_inimigo(self.run)
+
+    def test_mini_chefes_dakor(self):
+        # Pedágio de Névoa: cobra Foco e perde o turno.
+        run, ini = self.preparar("Vigia da Ponte Quebrada")
+        run.foco = 5
+        ini.turnos = 2
+        self.turno()
+        self.assertEqual(run.foco, 3)
+        self.assertEqual(run.vida, 1000)
+        self.assertTrue(any("cobra" in linha for linha in run.log))
+
+        # Gume Ritual: fica exposto ao afiar e devolve +4 no golpe seguinte.
+        run, ini = self.preparar("Afiador de Ossos")
+        ini.turnos = 1
+        self.turno()
+        self.assertTrue(getattr(ini, "_gume"))
+        self.assertEqual(run.vida, 1000)
+        self.golpe()
+        self.assertTrue(getattr(ini, "_gume"))
+        ini.turnos = 2
+        self.turno()
+        self.assertEqual(run.vida, 1000 - (ini.ataque + 4))
+        self.assertFalse(getattr(ini, "_gume", False))
+
+        # Coro Submerso: cura e drena Foco sem atacar.
+        run, ini = self.preparar("Coro de Afogados")
+        run.foco = 3
+        ini.vida = ini.vida_maxima - 5
+        ini.turnos = 2
+        self.turno()
+        self.assertEqual(run.foco, 2)
+        self.assertEqual(run.vida, 1000)
+        self.assertEqual(ini.vida, ini.vida_maxima - 1)
+
+        # Linha de Seda: três golpes rompem um fio e reduzem a defesa.
+        run, ini = self.preparar("A Costureira de Sombras")
+        defesa = ini.defesa
+        for _ in range(3):
+            self.golpe()
+        self.assertEqual(getattr(ini, "_seda_fios"), 1)
+        self.assertEqual(ini.defesa, max(0, defesa - 2))
+
+        # Rosto Emprestado: a primeira Técnica racha a máscara.
+        run, ini = self.preparar("Máscara do Primeiro Rosto")
+        run.golpe_tecnica = True
+        self.golpe()
+        self.assertTrue(getattr(ini, "_rosto_quebrado"))
+        run.golpe_tecnica = False
+        self.assertEqual(
+            ini.habilidade.reduzir_dano_recebido(run, ini, 10), 12)
+
+        # Rancor Contado: três golpes acumulam +1 e descarregam no ataque.
+        run, ini = self.preparar("Contador de Ossos")
+        for _ in range(3):
+            self.golpe()
+        self.assertEqual(getattr(ini, "_rancor"), 1)
+        self.turno()
+        self.assertEqual(run.vida, 1000 - (ini.ataque + 1))
+        self.assertFalse(getattr(ini, "_rancor", 0))
+
+    def test_mini_chefes_vapor(self):
+        # Purga de Vapor: limpa status e cura, mas perde o turno.
+        run, ini = self.preparar("A Caldeira Que Respira")
+        ini.queimadura = 2
+        ini.veneno = 3
+        ini.sangria = 1
+        ini.vida = ini.vida_maxima - 5
+        ini.turnos = 3
+        self.assertTrue(ini.habilidade.ao_turno(run, ini))
+        self.assertEqual((ini.queimadura, ini.veneno, ini.sangria), (0, 0, 0))
+        self.assertEqual(ini.vida, ini.vida_maxima - 2)
+        self.assertEqual(run.vida, 1000)
+
+        # Segundo Roubado: bloqueia o próximo ataque e acelera o corpo.
+        run, ini = self.preparar("Ladrão de Segundos")
+        ataque = ini.ataque
+        ini.turnos = 3
+        self.turno()
+        self.assertTrue(run.ataque_bloqueado)
+        self.assertEqual(ini.ataque, ataque + 1)
+        self.assertEqual(run.vida, 1000)
+
+        # Pressão Controlada: defesa inteira, ataque quando abre a válvula.
+        run, ini = self.preparar("Sentinela da Válvula Mestra")
+        self.assertEqual(
+            ini.habilidade.reduzir_dano_recebido(run, ini, 10), 7)
+        ini.vida = int(ini.vida_maxima * 0.5)
+        self.assertEqual(ini.habilidade.modificar_ataque(run, ini, 10), 13)
+
+        # Placa Moldada: ganha proteção e cura ao gastar o turno.
+        run, ini = self.preparar("Fundidor de Placas")
+        ini.vida = ini.vida_maxima - 5
+        ini.turnos = 3
+        self.turno()
+        self.assertEqual(ini.protecao, 1)
+        self.assertEqual(ini.vida, ini.vida_maxima - 3)
+        self.assertEqual(run.vida, 1000)
+
+        # Fio Escaldante: cada golpe respinga 2 e a queimadura aumenta o dano.
+        run, ini = self.preparar("Aranha de Válvulas")
+        run.vida = 100
+        run.queimadura = 1
+        self.golpe()
+        self.assertEqual(run.vida, 98)
+        self.assertEqual(ini.habilidade.modificar_ataque(run, ini, 10), 12)
+
+        # Fole de Cinzas: drena Foco e o golpe seguinte causa +2.
+        run, ini = self.preparar("Maquinista de Cinzas")
+        run.foco = 3
+        ini.turnos = 2
+        self.turno()
+        self.assertEqual(run.foco, 2)
+        self.assertEqual(run.vida, 1000 - (ini.ataque + 2))
+        self.assertFalse(getattr(ini, "_cinzas_bonus", False))
+
+    def test_mini_chefes_futuro(self):
+        # Miragem Tática: golpe básico é reduzido; Técnica dissipa e fere.
+        run, ini = self.preparar("Tecelã de Miragens")
+        ini.turnos = 3
+        self.turno()
+        self.assertTrue(getattr(ini, "_miragem"))
+        self.assertEqual(ini.protecao, 1)
+        run.golpe_tecnica = True
+        self.golpe()
+        self.assertFalse(getattr(ini, "_miragem", False))
+        self.assertEqual(ini.protecao, 0)
+
+        # Minuto Devorado: drena Foco e recupera vida sem atacar.
+        run, ini = self.preparar("Devorador de Minutos")
+        run.foco = 5
+        ini.vida = ini.vida_maxima - 10
+        ini.turnos = 2
+        self.turno()
+        self.assertEqual(run.foco, 3)
+        self.assertEqual(ini.vida, ini.vida_maxima - 7)
+        self.assertEqual(run.vida, 1000)
+
+        # Palavras Gastas: Técnicas alimentam o próximo golpe dela.
+        run, ini = self.preparar("Arauto das Palavras Gastas")
+        run.golpe_tecnica = True
+        self.golpe()
+        self.assertEqual(getattr(ini, "_palavras"), 3)
+        self.assertEqual(ini.habilidade.modificar_ataque(run, ini, 10), 13)
+        self.assertEqual(getattr(ini, "_palavras"), 0)
+
+        # Instante Perdido: ausente sofre 1; volta com +2.
+        run, ini = self.preparar("Sombra do Instante Perdido")
+        ini.turnos = 2
+        self.turno()
+        self.assertTrue(getattr(ini, "_instante_ausente"))
+        self.assertEqual(self.golpe(), 1)
+        ini.turnos = 3
+        self.turno()
+        self.assertFalse(getattr(ini, "_instante_ausente", False))
+        self.assertEqual(run.vida, 1000 - (ini.ataque + 2))
+
+        # Ponteiro Parado: bloqueia o ataque e devolve Foco.
+        run, ini = self.preparar("Ponteiro Parado")
+        run.foco = 3
+        ini.turnos = 4
+        self.turno()
+        self.assertTrue(run.ataque_bloqueado)
+        self.assertEqual(run.foco, 4)
+        self.assertEqual(run.vida, 1000)
+
+        # Fome do Amanhã: cada golpe alimenta o próximo; Guarda reduz.
+        run, ini = self.preparar("Fome do Amanhã")
+        ini.habilidade.apos_golpe(run, ini, 5)
+        self.assertEqual(getattr(ini, "_fome"), 1)
+        self.assertEqual(ini.habilidade.modificar_ataque(run, ini, 10), 11)
+        run.guarda = True
+        ini.habilidade.ao_turno(run, ini)
+        self.assertEqual(getattr(ini, "_fome"), 0)
+
+    def test_chefes_dakor(self):
+        # Travessia Forçada: telegrafada, interrompível e com sangramento.
+        run, ini = self.preparar("O Barqueiro de Ossos")
+        ini.turnos = 3
+        self.turno()
+        acao = ini.acao_pendente
+        self.assertEqual(acao.chave, "travessia_forcada")
+        self.assertTrue(acao.prepara and acao.interrompivel)
+        run.guarda = True
+        self.turno()
+        self.assertIsNone(ini.acao_pendente)
+        self.assertEqual(run.vida, 1000)
+
+        run, ini = self.preparar("O Barqueiro de Ossos")
+        ini.turnos = 3
+        self.turno()
+        self.turno()
+        self.assertGreater(run.sangramento, 0)
+        self.assertLess(run.vida, 1000)
+
+        # Troca de Rosto: alterna defesa e ataque.
+        run, ini = self.preparar("A Mãe das Máscaras")
+        ini.turnos = 1
+        self.turno()
+        self.assertFalse(getattr(ini, "_rosto_pedra", True))
+        self.assertEqual(run.vida, 1000 - (ini.ataque + 4))
+        ini.turnos = 3
+        self.turno()
+        self.assertTrue(getattr(ini, "_rosto_pedra", False))
+        self.assertEqual(
+            ini.habilidade.reduzir_dano_recebido(run, ini, 10), 6)
+
+        # Fatura do Colecionador: cobra por bens equipados.
+        run, ini = self.preparar("O Coletor de Dívidas")
+        run.equipados = ["a", "b"]
+        run.itens_efeitos = [object()]
+        run.reliquias = [object()]
+        ini.turnos = 4
+        self.assertEqual(ini.habilidade.modificar_ataque(run, ini, 10), 16)
+
+        # Máscaras Trocadas: pedra absorve; espinhos devolvem dano.
+        run, ini = self.preparar("O Pastor de Máscaras")
+        run.vida = 100
+        self.golpe()
+        self.assertFalse(getattr(ini, "_mascara_pedra", True))
+        self.golpe()
+        self.assertEqual(run.vida, 98)
+        self.assertTrue(getattr(ini, "_mascara_pedra", False))
+
+        # Luz do Farol: marca e causa +5; Guarda encobre a luz.
+        run, ini = self.preparar("A Viúva do Farol")
+        ini.turnos = 2
+        self.turno()
+        self.assertEqual(run.vida, 1000 - (ini.ataque + 5))
+        self.assertFalse(run.marcado)
+
+        run, ini = self.preparar("A Viúva do Farol")
+        ataque = ini.ataque
+        ini.turnos = 2
+        run.guarda = True
+        self.turno()
+        self.assertEqual(ini.ataque, ataque - 1)
+        self.assertEqual(run.vida, 1000)
+
+        # Página Arrancada: reduz o ataque do jogador; Guarda protege.
+        run, ini = self.preparar("O Arquivista de Nomes")
+        run.ataque = 20
+        ini.vida = ini.vida_maxima - 10
+        ini.turnos = 4
+        self.turno()
+        self.assertEqual(run.ataque, 19)
+        self.assertEqual(ini.vida, ini.vida_maxima - 6)
+        self.assertEqual(run.vida, 1000)
+
+        run, ini = self.preparar("O Arquivista de Nomes")
+        run.ataque = 20
+        run.guarda = True
+        ini.turnos = 4
+        self.turno()
+        self.assertEqual(run.ataque, 20)
+
+    def test_chefes_vapor(self):
+        # Linha de Montagem: monta peças; Técnica desmonta.
+        run, ini = self.preparar("O Engenheiro-Chefe")
+        ataque = ini.ataque
+        ini.vida = ini.vida_maxima - 10
+        ini.turnos = 2
+        self.turno()
+        self.assertEqual(getattr(ini, "_pecas"), 1)
+        self.assertEqual(ini.ataque, ataque + 1)
+        self.assertEqual(ini.vida, ini.vida_maxima - 7)
+        run.golpe_tecnica = True
+        self.golpe()
+        self.assertEqual(getattr(ini, "_pecas"), 0)
+        self.assertEqual(ini.ataque, ataque)
+
+        # Combustão: consome barreira; sem barreira, queima.
+        run, ini = self.preparar("A Fornalha Viva")
+        run.barreira = 100
+        ini.turnos = 1
+        self.turno()
+        self.assertEqual(run.barreira, 100 - 3 - ini.ataque)
+        self.assertEqual(run.vida, 1000)
+
+        run, ini = self.preparar("A Fornalha Viva")
+        run.barreira = 0
+        ini.turnos = 1
+        self.turno()
+        self.assertEqual(run.vida, 1000 - (ini.ataque + 2) - 4)
+        self.assertFalse(getattr(ini, "_combustao", False))
+
+        # Fios Cruzados: bloqueia o próximo ataque; Guarda interrompe.
+        run, ini = self.preparar("O Titereiro de Válvulas")
+        ini.turnos = 2
+        self.turno()
+        self.assertEqual(ini.acao_pendente.chave, "fios_cruzados")
+        run.guarda = True
+        self.turno()
+        self.assertFalse(run.ataque_bloqueado)
+
+        run, ini = self.preparar("O Titereiro de Válvulas")
+        ini.turnos = 2
+        self.turno()
+        self.turno()
+        self.assertTrue(run.ataque_bloqueado)
+        self.assertEqual(ini.habilidade.modificar_ataque(run, ini, 10), 12)
+
+        # Duas Faces do Latão: alterna defesa/remendo e dano.
+        run, ini = self.preparar("A Dama de Latão")
+        ini.turnos = 2
+        self.turno()
+        self.assertFalse(getattr(ini, "_fase_latao", True))
+        self.assertEqual(run.vida, 1000 - (ini.ataque + 3))
+
+        run, ini = self.preparar("A Dama de Latão")
+        ini._fase_latao = False       # estado após a face de Vidro
+        ini.turnos = 5
+        ini.vida = ini.vida_maxima - 10
+        self.turno()
+        self.assertTrue(getattr(ini, "_fase_latao", False))
+        self.assertEqual(ini.vida, ini.vida_maxima - 8)
+        self.assertEqual(run.vida, 1000 - ini.ataque)
+
+        # Hora Final: telegrafada; Guarda interrompe.
+        run, ini = self.preparar("O Relojoeiro do Fim")
+        ini.turnos = 4
+        self.turno()
+        self.assertEqual(ini.acao_pendente.chave, "hora_final")
+        run.guarda = True
+        self.turno()
+        self.assertEqual(run.vida, 1000)
+
+        # Oferenda de Carvão: item usado vira cura e ataque.
+        run, ini = self.preparar("A Catedral de Carvão")
+        ataque = ini.ataque
+        ini.vida = ini.vida_maxima - 10
+        ini.memoria.observacoes = ["item"]
+        ini.turnos = 0
+        self.turno()
+        self.assertEqual(ini.vida, ini.vida_maxima - 6)
+        self.assertEqual(ini.ataque, ataque + 1)
+        self.assertEqual(run.vida, 1000)
+
+    def test_chefes_futuro(self):
+        # Reflexo do Último Dia: telegrafado, interrompível.
+        run, ini = self.preparar("O Espelho do Último Dia")
+        ini.turnos = 2
+        self.turno()
+        self.assertEqual(
+            ini.acao_pendente.chave, "reflexo_do_ultimo_dia")
+        run.guarda = True
+        self.turno()
+        self.assertEqual(run.vida, 1000)
+
+        run, ini = self.preparar("O Espelho do Último Dia")
+        ini.turnos = 2
+        self.turno()
+        ini._ultimo_dano = 14
+        self.turno()
+        self.assertEqual(run.vida, 993)
+
+        # Sussurro do Futuro: telegrafado; fica exposta enquanto pendente.
+        run, ini = self.preparar("A Fenda que Escuta")
+        ini.turnos = 3
+        self.turno()
+        self.assertEqual(
+            ini.acao_pendente.chave, "sussurro_do_futuro")
+        self.assertEqual(
+            ini.habilidade.reduzir_dano_recebido(run, ini, 10), 13)
+        run.guarda = True
+        self.turno()
+        self.assertEqual(run.vida, 1000)
+
+        # Possibilidades Colhidas: duas Técnicas disparam a colheita.
+        run, ini = self.preparar("O Colecionador de Futuros")
+        run.golpe_tecnica = True
+        self.golpe()
+        self.golpe()
+        self.assertEqual(getattr(ini, "_possibilidades"), 2)
+        acao = ini.habilidade.escolher_acao(run, ini)
+        self.assertEqual(acao.chave, "colheita_de_futuros")
+        self.assertTrue(acao.prepara and acao.interrompivel)
+        self.assertEqual(getattr(ini, "_possibilidades"), 0)
+
+        # Ausência Planejada: some, dá Foco e volta com +4.
+        run, ini = self.preparar("A Criança que Não Foi")
+        run.foco = 1
+        ini.turnos = 3
+        self.turno()
+        self.assertTrue(getattr(ini, "_crianca_ausente"))
+        self.assertEqual(run.foco, 3)
+        dano = self.golpe()
+        self.assertLess(dano, 18)
+        ini.turnos = 4
+        self.turno()
+        self.assertFalse(getattr(ini, "_crianca_ausente", False))
+        self.assertEqual(run.vida, 1000 - (ini.ataque + 4))
+
+        # Conclusão Antecipada: abaixo de 40% de vida, +2 em todo golpe.
+        run, ini = self.preparar("O Devorador de Conclusões")
+        run.vida = int(run.vida_maxima * 0.3)
+        self.assertEqual(ini.habilidade.modificar_ataque(run, ini, 10), 12)
+        ini.turnos = 3
+        self.turno()
+        self.assertEqual(
+            ini.acao_pendente.chave, "conclusao_antecipada")
+
+        # Espelho do Último Ato: espelha ataque (defesa) e cautela (dano).
+        run, ini = self.preparar("A Última Testemunha")
+        ini.memoria.observacoes = ["atacar"]
+        ini.turnos = 2
+        self.turno()
+        self.assertTrue(getattr(ini, "_espelho_def"))
+        self.assertEqual(
+            ini.habilidade.reduzir_dano_recebido(run, ini, 10), 6)
+
+        run, ini = self.preparar("A Última Testemunha")
+        ini.memoria.observacoes = ["guardar"]
+        ini.turnos = 6
+        ini.habilidade.ao_turno(run, ini)
+        self.assertTrue(getattr(ini, "_espelho_atk"))
+        self.assertEqual(ini.habilidade.modificar_ataque(run, ini, 10), 13)
+
+    def test_acoes_telegrafadas_de_chefes_podem_ser_interrompidas(self):
+        casos = (
+            ("O Barqueiro de Ossos", 3, "travessia_forcada"),
+            ("O Titereiro de Válvulas", 2, "fios_cruzados"),
+            ("O Relojoeiro do Fim", 4, "hora_final"),
+            ("O Espelho do Último Dia", 2, "reflexo_do_ultimo_dia"),
+            ("A Fenda que Escuta", 3, "sussurro_do_futuro"),
+            ("O Devorador de Conclusões", 3, "conclusao_antecipada"),
+        )
+        for nome, turnos, chave in casos:
+            with self.subTest(chefe=nome):
+                run, ini = self.preparar(nome)
+                ini.turnos = turnos
+                self.turno()
+                self.assertEqual(ini.acao_pendente.chave, chave)
+                self.assertTrue(ini.acao_pendente.prepara)
+                self.assertTrue(ini.acao_pendente.interrompivel)
+                run.guarda = True
+                self.turno()
+                self.assertIsNone(ini.acao_pendente)
+                self.assertEqual(run.vida, 1000)
+
+        # A colheita do Colecionador também é telegrafada e interrompível.
+        run, ini = self.preparar("O Colecionador de Futuros")
+        ini._possibilidades = 2
+        self.turno()
+        self.assertEqual(ini.acao_pendente.chave, "colheita_de_futuros")
+        run.guarda = True
+        self.turno()
+        self.assertIsNone(ini.acao_pendente)
+        self.assertEqual(run.vida, 1000)
+
+    def test_habilidades_sem_recursos_nao_quebram_o_combate(self):
+        for nome in sorted(TODOS_ESPECIAIS):
+            with self.subTest(criatura=nome):
+                run, ini = self.preparar(nome)
+                run.vida = run.vida_maxima = 10000
+                run.ataque = 1
+                run.foco = 0
+                run.barreira = 0
+                run.equipados = []
+                run.itens_efeitos = []
+                run.reliquias = []
+                for _ in range(12):
+                    with patch.object(
+                            rt.random, "randint", return_value=1):
+                        rt.executar_ataque(run, nunca_erra=True)
+                    self.turno(sem_acao_padrao=False)
+                self.assertGreater(run.vida, 0)
+                self.assertGreater(ini.vida, 0)
+
+
+class TestIntegracaoExpansao3(unittest.TestCase):
+    def test_novos_entram_no_pool_certo(self):
+        for spec in (c for c in rt.CRIATURAS
+                     if c.nome in TODOS_ESPECIAIS):
+            with self.subTest(criatura=spec.nome):
+                def escolher(pool, alvo=spec):
+                    self.assertIn(alvo, pool)
+                    return alvo
+
+                with patch.object(rt.random, "choice", side_effect=escolher):
+                    inimigo = rt.criar_inimigo(
+                        spec.nivel_minimo, categoria=spec.categoria)
+                self.assertIs(inimigo.spec, spec)
+                self.assertEqual(inimigo.spec.categoria, spec.categoria)
+
+    def test_cadencia_de_encontros_nao_mudou(self):
+        esperado = {
+            1: "normal", 2: "normal", 3: "mini_chefe", 4: "normal",
+            5: "chefe", 6: "mini_chefe", 7: "normal", 9: "mini_chefe",
+            10: "chefe", 12: "mini_chefe", 15: "chefe",
+            18: "mini_chefe", 20: "chefe", 25: "chefe", 30: "chefe",
+            33: "mini_chefe",
+        }
+        with patch.object(rt.random, "random", return_value=1.0):
+            for nivel, categoria in esperado.items():
+                with self.subTest(nivel=nivel):
+                    self.assertEqual(
+                        rt.categoria_encontro(nivel), categoria)
+
+    def test_inicio_e_fim_de_run_com_conteudo_novo(self):
+        for spec in (c for c in rt.CRIATURAS
+                     if c.nome in TODOS_ESPECIAIS):
+            with self.subTest(criatura=spec.nome):
+                run = novo_run(nivel=spec.nivel_minimo)
+                with patch.object(rt, "sortear_evento", return_value=None), \
+                        patch.object(rt.random, "choice", return_value=spec):
+                    rt.preparar_combate(run, categoria=spec.categoria)
+                self.assertEqual(run.inimigo.spec.nome, spec.nome)
+                self.assertEqual(run.inimigo.spec.categoria, spec.categoria)
+
+        run = novo_run(nivel=5)
+        spec = next(c for c in rt.CRIATURAS
+                    if c.nome == "O Barqueiro de Ossos")
+        with patch.object(rt, "sortear_evento", return_value=None), \
+                patch.object(rt.random, "choice", return_value=spec):
+            rt.preparar_combate(run, categoria="chefe")
+        run.inimigo.vida = 0
+
+        cog = object.__new__(rt.RupturaTemporal)
+        cog.bot = SimpleNamespace(dispatch=lambda *a, **k: None)
+        cog.runs_ativas = {}
+        with patch.object(rt, "award_rewards",
+                          new=AsyncMock(return_value=True)):
+            embed = asyncio.run(cog.finalizar_run(run, "derrota de teste"))
+
+        self.assertTrue(run.finalizada)
+        self.assertNotIn(run.user_id, cog.runs_ativas)
+        self.assertIn("Resultado", embed.description)
+
+    def test_recompensas_reutilizam_as_formulas_existentes(self):
+        cog = object.__new__(rt.RupturaTemporal)
+        cog.bot = SimpleNamespace(get_cog=lambda nome: None)
+        multiplicador = {
+            "mini_chefe": 1.8, "chefe": 2.7,
+        }
+        for spec in (c for c in rt.CRIATURAS
+                     if c.nome in TODOS_ESPECIAIS):
+            with self.subTest(criatura=spec.nome):
+                run = novo_run(nivel=1)
+                run.inimigo = rt.EnemyState(
+                    spec=spec, nivel=spec.nivel_minimo,
+                    vida=0, vida_maxima=spec.vida,
+                    ataque=spec.ataque, defesa=spec.defesa)
+                with patch.object(
+                        rt, "award_rewards",
+                        new=AsyncMock(return_value=True)), \
+                        patch.object(rt, "sortear_evento", return_value=None), \
+                        patch.object(rt.random, "random", return_value=1.0):
+                    asyncio.run(cog.registrar_vitoria(run))
+
+                self.assertEqual(
+                    run.xp, int(spec.xp * multiplicador[spec.categoria]))
+                self.assertEqual(run.abysmus, 0)
+                self.assertEqual(run.abates, 1)
+                self.assertEqual(
+                    run.abatidos[f"{spec.categoria}|{spec.nome}"], 1)
 
 
 if __name__ == "__main__":

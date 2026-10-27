@@ -31,7 +31,7 @@ Escala qualitativa: **alta / média / baixa**.
 | Cog | Linhas | Comandos principais | Persistência | Criticidade | Maturidade | Coesão | Recomendação |
 | --- | ---: | --- | --- | --- | --- | --- | --- |
 | `XpAndCoins` | 1.088 | `/xp`, `/level`, `/coins`, `/ranking`, admin | `user_stats` | **Alta** | **Alta** | Alta | **Manter** (proteger) |
-| `ruptura` | 8.107 | `s!ruptura`, `s!market`, `s!inventario`, `/build` | inventário, build, mercado | **Alta** | Média/Alta | Baixa | **Manter + refatorar** |
+| `ruptura` | 9.551 | `s!ruptura`, `s!market`, `s!inventario`, `/build` | inventário, build, mercado | **Alta** | Média/Alta | Baixa | **Manter + refatorar** |
 | `ruptura_pvp` | 1.353 | `s!duelo`, `s!duelorank` | `ruptura_pvp` | Média | Média | Média | **Manter** (integração coberta) |
 | `ruptura_extras` | 1.055 | `s!ranking_ruptura`, `s!perfil_ruptura`, IA | `ruptura_runs`, `ruptura_abates` | Média | Média | Média | **Manter + separar** |
 | `badges` | 2.313 | 13 comandos de insígnias | 4 tabelas + fila | Média/Alta | Alta | Média | **Manter + dividir** |
@@ -97,16 +97,16 @@ build, persistência e UI.
 **Pontos fortes**
 
 - Catálogo declarativo e validado (10 classes, 30 especs, 150 nós, 12 relíquias, 27 itens,
-  55 criaturas, 12 eventos, 32 habilidades).
+  91 criaturas, 12 eventos, 68 habilidades).
 - Combate com Foco, guarda, técnicas, ativas, status, crítico, relíquias e eventos.
 - Chefes com telegrafia, interrupção e adaptação isolada.
 - Mercado/forja com compra atômica e testes de concorrência.
-- Boa suíte de testes para o tamanho do sistema (74 testes no total).
+- Boa suíte de testes para o tamanho do sistema (89 testes no total).
 - UI funcional com botões, selects, mochila e eventos.
 
 **Pontos fracos**
 
-- 8.107 linhas e múltiplas responsabilidades no mesmo arquivo.
+- 9.551 linhas e múltiplas responsabilidades no mesmo arquivo.
 - `cog_unload()` descarta runs sem finalização.
 - Estado apenas em memória; restart abrupto perde runs.
 - Recompensas podem falhar sem compensação.

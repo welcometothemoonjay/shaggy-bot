@@ -1,6 +1,7 @@
 # Roadmap — Ruptura Temporal
 
-**Base:** auditoria de 26/10/2026, commit `9cb5c19`.
+**Base:** auditoria de 26/10/2026, commit `9cb5c19`; status atualizado após a
+Expansão 3 (alterações ainda não commitadas; HEAD `4e32aa4`).
 **Objetivo:** organizar melhorias da Ruptura Temporal por problema, impacto e custo, sem
 alterar balanceamento, recompensas ou esquema de dados nesta fase.
 
@@ -62,6 +63,10 @@ alterar balanceamento, recompensas ou esquema de dados nesta fase.
   `estado_jogador_ocupado()` compartilhado e cobertura automatizada nos dois sentidos.
 - **Concluído em 26/10/2026:** BUG-05 — liberação de `ocupados` quando a abertura da
   escolha de classe ou a confirmação do duelo falha, com testes de regressão.
+- **Concluído em 26/10/2026:** Expansão 3 — **36 criaturas** (18 mini-Chefes e 18 Chefes,
+  6 + 6 por era), com 36 habilidades exclusivas, contrajogo telegrafado e testes de
+  catálogo, combate, integração e recompensa. Catálogo atual: **91 criaturas** e **68
+  habilidades**.
 - **Em andamento:** nenhum item.
 - **Próximo recomendado:** BUG-02 — finalização de runs no unload.
 - **Pendentes:** todas as demais propostas desta lista.
@@ -367,7 +372,7 @@ alterar balanceamento, recompensas ou esquema de dados nesta fase.
 
 ### CRE-01 — Cobertura e consistência do bestiário
 
-- **Problema/oportunidade:** o catálogo cresceu para 55 criaturas; nem toda criatura tem
+- **Problema/oportunidade:** o catálogo cresceu para 91 criaturas; nem toda criatura tem
   habitat, era ou gancho de evento explícito.
 - **Solução:** auditar metadados (era, categoria, habilidade, fraqueza, descrição) e
   padronizar o que falta; não alterar atributos.

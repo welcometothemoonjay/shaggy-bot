@@ -1682,6 +1682,1177 @@ class VeuDeCinzas(HabilidadeInimiga):
         return "Golpe direto."
 
 
+# ------------------------------------------------------------
+# EXPANSÃO 3 — HABILIDADES EXCLUSIVAS DE MINI-CHEFES E CHEFES
+# ------------------------------------------------------------
+# 36 criaturas (6 mini-chefes + 6 chefes por era). Cada habilidade tem
+# contrajogo claro: ações telegrafadas e interrompíveis com Guarda ou
+# atordoamento, fases anunciadas na intenção, limites de acúmulo e
+# nenhum efeito que deixe a vida do jogador abaixo de 1 por dano direto.
+# O estado de combate fica SEMPRE no EnemyState (inimigo._algo), nunca
+# na instância compartilhada da habilidade.
+
+def _ferir_com_barreira(run, quantidade: int) -> int:
+    """Dano direto de habilidade: a barreira absorve e a vida não cai de 1."""
+    absorvido = min(run.barreira, max(0, quantidade))
+    run.barreira -= absorvido
+    perda = min(max(0, quantidade) - absorvido, max(0, run.vida - 1))
+    run.vida -= perda
+    return perda
+
+
+def _curar_inimigo(inimigo, quantidade: int) -> int:
+    """Cura a criatura sem passar da vida máxima; retorna a cura real."""
+    cura = min(max(0, quantidade), max(0, inimigo.vida_maxima - inimigo.vida))
+    inimigo.vida += cura
+    return cura
+
+
+# ============================================================
+# DA'KOR — MINI-CHEFES
+# ============================================================
+
+@registrar_habilidade("pedagio_de_nevoa")
+class PedagioDeNevoa(HabilidadeInimiga):
+    nome = "Pedágio de Névoa"
+    descricao = ("A cada 3 turnos cobra 2 Foco e perde o turno. Sem Foco "
+                 "suficiente, o golpe seguinte causa +3.")
+
+    def ao_turno(self, run, inimigo):
+        if inimigo.turnos % 3 == 0:
+            roubo = min(2, run.foco)
+            if roubo:
+                run.foco -= roubo
+                run.log.append(
+                    f"🌫️ O vigia cobra {roubo} Foco e hesita na ponte.")
+                return True
+            inimigo._pedagio_ira = True
+            run.log.append(
+                "🌫️ Sem Foco para pagar, o vigia ataca com raiva (+3).")
+        return False
+
+    def modificar_ataque(self, run, inimigo, dano):
+        if getattr(inimigo, "_pedagio_ira", False):
+            inimigo._pedagio_ira = False
+            return dano + 3
+        return dano
+
+    def intencao(self, run, inimigo):
+        if (inimigo.turnos + 1) % 3 == 0:
+            return ("Vai cobrar 2 Foco e perder o turno. Sem Foco, "
+                    "o golpe seguinte causa +3.")
+        return "Golpe direto."
+
+
+@registrar_habilidade("gume_ritual")
+class GumeRitual(HabilidadeInimiga):
+    nome = "Gume Ritual"
+    descricao = ("A cada 2 turnos afia o braço e perde o turno. O golpe "
+                 "seguinte causa +4, mas ele fica exposto (+3 recebido).")
+
+    def ao_turno(self, run, inimigo):
+        if inimigo.turnos % 2 == 0:
+            inimigo._gume = True
+            run.log.append(
+                "🦴 O afiador passa o próprio osso na pedra: exposto e "
+                "preparando um golpe +4.")
+            return True
+        return False
+
+    def reduzir_dano_recebido(self, run, inimigo, dano):
+        if getattr(inimigo, "_gume", False):
+            return max(1, dano + 3)
+        return dano
+
+    def modificar_ataque(self, run, inimigo, dano):
+        if getattr(inimigo, "_gume", False):
+            inimigo._gume = False
+            run.log.append("🦴 O gume afiado encontra você: +4 de dano.")
+            return dano + 4
+        return dano
+
+    def intencao(self, run, inimigo):
+        if getattr(inimigo, "_gume", False):
+            return "Golpe afiado (+4) agora. Ele está exposto: ataque!"
+        if (inimigo.turnos + 1) % 2 == 0:
+            return "Vai afiar o braço e perder o turno. Aproveite para atacar."
+        return "Golpe direto. O gume ritual volta em breve."
+
+
+@registrar_habilidade("coro_submerso")
+class CoroSubmerso(HabilidadeInimiga):
+    nome = "Coro Submerso"
+    descricao = ("A cada 3 turnos o coro canta: recupera 4 de vida e drena "
+                 "1 Foco. Nesse turno ele não ataca.")
+
+    def ao_turno(self, run, inimigo):
+        if inimigo.turnos % 3 == 0:
+            cura = _curar_inimigo(inimigo, 4)
+            antes = run.foco
+            run.foco = max(0, run.foco - 1)
+            run.log.append(
+                "🎶 O coro submerso canta: "
+                + (f"recupera {cura} de vida" if cura else "não encontra carne")
+                + (f" e drena {antes - run.foco} Foco." if antes else " e "
+                   "não encontra Foco para drenar."))
+            return True
+        return False
+
+    def intencao(self, run, inimigo):
+        if (inimigo.turnos + 1) % 3 == 0:
+            return ("Vai cantar e perder o turno: cura 4 e drena 1 Foco. "
+                    "Aproveite para atacar.")
+        return "Golpe direto. O coro volta em breve."
+
+
+@registrar_habilidade("linha_de_seda")
+class LinhaDeSeda(HabilidadeInimiga):
+    nome = "Linha de Seda"
+    descricao = ("A linha absorve 2 de cada golpe. A cada 3 golpes um fio "
+                 "se rompe e ela perde 2 de defesa (até 3 fios).")
+
+    def reduzir_dano_recebido(self, run, inimigo, dano):
+        if dano <= 0:
+            return dano
+        golpes = getattr(inimigo, "_seda_golpes", 0) + 1
+        inimigo._seda_golpes = golpes
+        if golpes % 3 == 0:
+            fios = getattr(inimigo, "_seda_fios", 0)
+            if fios < 3:
+                inimigo._seda_fios = fios + 1
+                inimigo.defesa = max(0, inimigo.defesa - 2)
+                run.log.append(
+                    f"🧵 Um fio de seda se rompe ({fios + 1}/3): "
+                    "a costureira perde 2 de defesa.")
+                return dano
+        return max(1, dano - 2)
+
+    def intencao(self, run, inimigo):
+        fios = getattr(inimigo, "_seda_fios", 0)
+        if fios >= 3:
+            return "Os três fios já romperam: a seda não protege mais."
+        return (f"A seda absorve 2 por golpe; a cada 3 golpes um fio rompe. "
+                f"Fios rompidos: {fios}/3.")
+
+
+@registrar_habilidade("rosto_emprestado")
+class RostoEmprestado(HabilidadeInimiga):
+    nome = "Rosto Emprestado"
+    descricao = ("A primeira Técnica ou ativa contra ela é reduzida em 4; "
+                 "depois a máscara racha e ela sofre +2 de todos os golpes.")
+
+    def reduzir_dano_recebido(self, run, inimigo, dano):
+        if getattr(inimigo, "_rosto_quebrado", False):
+            return dano + 2
+        if run.golpe_tecnica or run.golpe_ativa:
+            inimigo._rosto_quebrado = True
+            run.log.append(
+                "🎭 A máscara copia seu gesto e absorve 4 de dano — mas racha. "
+                "Agora ela sofre +2.")
+            return max(1, dano - 4)
+        return dano
+
+    def intencao(self, run, inimigo):
+        if getattr(inimigo, "_rosto_quebrado", False):
+            return "A máscara está rachada: todos os golpes causam +2."
+        return ("A primeira Técnica/ativa é reduzida em 4 e racha a máscara; "
+                "depois ela sofre +2. Ataques básicos não a quebram.")
+
+
+@registrar_habilidade("rancor_contado")
+class RancorContado(HabilidadeInimiga):
+    nome = "Rancor Contado"
+    descricao = ("A cada 3 golpes recebidos acumula +1 de dano no próximo "
+                 "ataque (máx. +3) e então descarrega o rancor.")
+
+    def reduzir_dano_recebido(self, run, inimigo, dano):
+        if dano <= 0:
+            return dano
+        golpes = getattr(inimigo, "_rancor_golpes", 0) + 1
+        inimigo._rancor_golpes = golpes
+        rancor = getattr(inimigo, "_rancor", 0)
+        if golpes % 3 == 0 and rancor < 3:
+            inimigo._rancor = rancor + 1
+            run.log.append(
+                f"🦴 O contador marca {rancor + 1}/3 golpes: "
+                "o próximo ataque causa mais dano.")
+        return dano
+
+    def modificar_ataque(self, run, inimigo, dano):
+        rancor = getattr(inimigo, "_rancor", 0)
+        if rancor:
+            inimigo._rancor = 0
+            run.log.append(f"🦴 O rancor acumulado descarrega: +{rancor}.")
+            return dano + rancor
+        return dano
+
+    def intencao(self, run, inimigo):
+        rancor = getattr(inimigo, "_rancor", 0)
+        if rancor:
+            return f"Golpe com +{rancor} de rancor acumulado. Guarde ou ataque forte."
+        return "Golpe direto. A cada 3 golpes ele acumula rancor."
+
+
+# ============================================================
+# ERA A VAPOR — MINI-CHEFES
+# ============================================================
+
+@registrar_habilidade("purga_de_vapor")
+class PurgaDeVapor(HabilidadeInimiga):
+    nome = "Purga de Vapor"
+    descricao = ("A cada 3 turnos sopra vapor: limpa os próprios status e "
+                 "recupera 3 de vida, gastando o turno.")
+
+    def ao_turno(self, run, inimigo):
+        if inimigo.turnos % 3 == 0:
+            limpos = 0
+            for atributo in ("queimadura", "veneno", "sangria",
+                             "marca", "fraqueza"):
+                if getattr(inimigo, atributo, 0):
+                    setattr(inimigo, atributo, 0)
+                    limpos += 1
+            cura = _curar_inimigo(inimigo, 3)
+            run.log.append(
+                "💨 A caldeira purga a pressão: "
+                + (f"limpa {limpos} efeito(s)" if limpos else "nada a limpar")
+                + (f" e recupera {cura} de vida." if cura else "."))
+            return True
+        return False
+
+    def intencao(self, run, inimigo):
+        if (inimigo.turnos + 1) % 3 == 0:
+            return ("Vai purgar os status e recuperar 3 de vida, perdendo "
+                    "o turno. Aplique status depois da purga.")
+        return "Golpe direto. A purga volta em breve."
+
+
+@registrar_habilidade("segundo_roubado")
+class SegundoRoubado(HabilidadeInimiga):
+    nome = "Segundo Roubado"
+    descricao = ("A cada 4 turnos rouba seu próximo ataque e ganha +1 de "
+                 "ataque (até +3), gastando o turno.")
+
+    def ao_turno(self, run, inimigo):
+        if inimigo.turnos % 4 == 0:
+            run.ataque_bloqueado = True
+            roubos = getattr(inimigo, "_segundos_roubados", 0)
+            if roubos < 3:
+                inimigo._segundos_roubados = roubos + 1
+                inimigo.ataque += 1
+            run.log.append(
+                "⏱️ O ladrão arranca um segundo seu: o próximo ataque falha"
+                + (" e ele fica mais rápido (+1 ataque)." if roubos < 3 else "."))
+            return True
+        return False
+
+    def intencao(self, run, inimigo):
+        if (inimigo.turnos + 1) % 4 == 0:
+            return ("Vai roubar seu próximo ataque e ganhar +1 de ataque. "
+                    "Use Guardar ou Concentrar nesse turno.")
+        roubos = getattr(inimigo, "_segundos_roubados", 0)
+        return f"Golpe direto. Roubos acumulados: {roubos}/3."
+
+
+@registrar_habilidade("pressao_controlada")
+class PressaoControlada(HabilidadeInimiga):
+    nome = "Pressão Controlada"
+    descricao = ("Acima de 60% de vida reduz 3 de dano; abaixo disso abre a "
+                 "válvula e causa +3, mas deixa de reduzir dano.")
+
+    def reduzir_dano_recebido(self, run, inimigo, dano):
+        if inimigo.vida > inimigo.vida_maxima * 0.6:
+            return max(1, dano - 3)
+        return dano
+
+    def modificar_ataque(self, run, inimigo, dano):
+        if inimigo.vida <= inimigo.vida_maxima * 0.6:
+            return dano + 3
+        return dano
+
+    def intencao(self, run, inimigo):
+        if inimigo.vida > inimigo.vida_maxima * 0.6:
+            return ("Acima de 60%: reduz 3 de dano. Abaixo disso, abre a "
+                    "válvula e causa +3.")
+        return "Válvula aberta: golpes causam +3 e ela não reduz mais dano."
+
+
+@registrar_habilidade("placa_moldada")
+class PlacaMoldada(HabilidadeInimiga):
+    nome = "Placa Moldada"
+    descricao = ("A cada 4 turnos gasta o turno para moldar uma placa: "
+                 "reduz o próximo golpe pela metade e recupera 2 de vida.")
+
+    def ao_turno(self, run, inimigo):
+        if inimigo.turnos % 4 == 0:
+            inimigo.protecao = 1
+            cura = _curar_inimigo(inimigo, 2)
+            run.log.append(
+                "🔨 O fundidor molda uma placa: o próximo golpe causa metade"
+                + (f" e ele recupera {cura} de vida." if cura else "."))
+            return True
+        return False
+
+    def intencao(self, run, inimigo):
+        if (inimigo.turnos + 1) % 4 == 0:
+            return ("Vai moldar uma placa e perder o turno: próximo golpe "
+                    "reduzido pela metade. Use Concentrar ou um golpe básico.")
+        return "Golpe direto."
+
+
+@registrar_habilidade("fio_escaldante")
+class FioEscaldante(HabilidadeInimiga):
+    nome = "Fio Escaldante"
+    descricao = ("Cada golpe seu libera vapor: 2 de dano direto (a barreira "
+                 "absorve; nunca mata). Se você estiver queimando, +2.")
+
+    def reduzir_dano_recebido(self, run, inimigo, dano):
+        if dano <= 0:
+            return dano
+        perda = _ferir_com_barreira(run, 2)
+        run.log.append(
+            "♨️ O fio escaldante respinga vapor"
+            + (f" e causa {perda} de dano." if perda else " — a barreira segura."))
+        return dano
+
+    def modificar_ataque(self, run, inimigo, dano):
+        if run.queimadura > 0:
+            run.log.append("♨️ A aranha aproveita a queimadura: +2 de dano.")
+            return dano + 2
+        return dano
+
+    def intencao(self, run, inimigo):
+        if run.queimadura > 0:
+            return "Você está queimando: o próximo golpe causa +2. A barreira segura o vapor."
+        return "Cada golpe seu devolve 2 de vapor (barreira absorve)."
+
+
+@registrar_habilidade("fole_de_cinzas")
+class FoleDeCinzas(HabilidadeInimiga):
+    nome = "Fole de Cinzas"
+    descricao = ("A cada 3 turnos sopra cinzas: drena 1 Foco e o golpe "
+                 "seguinte causa +2.")
+
+    def ao_turno(self, run, inimigo):
+        if inimigo.turnos % 3 == 0:
+            antes = run.foco
+            run.foco = max(0, run.foco - 1)
+            inimigo._cinzas_bonus = True
+            run.log.append(
+                "🌫️ O maquinista sopra cinzas nos seus olhos"
+                + (f" e drena {antes - run.foco} Foco" if antes else "")
+                + ". O próximo golpe causa +2.")
+        return False
+
+    def modificar_ataque(self, run, inimigo, dano):
+        if getattr(inimigo, "_cinzas_bonus", False):
+            inimigo._cinzas_bonus = False
+            return dano + 2
+        return dano
+
+    def intencao(self, run, inimigo):
+        if getattr(inimigo, "_cinzas_bonus", False):
+            return "Golpe com +2 de cinzas. Guarde ou use barreira."
+        if (inimigo.turnos + 1) % 3 == 0:
+            return "Vai soprar cinzas: drena 1 Foco e o golpe seguinte causa +2."
+        return "Golpe direto."
+
+
+# ============================================================
+# FUTURO DISTORCIDO — MINI-CHEFES
+# ============================================================
+
+@registrar_habilidade("miragem_tatica")
+class MiragemTatica(HabilidadeInimiga):
+    nome = "Miragem Tática"
+    descricao = ("A cada 4 turnos ergue uma miragem: o próximo golpe causa "
+                 "metade. Uma Técnica/ativa a dissipa e causa +3.")
+
+    def ao_turno(self, run, inimigo):
+        if inimigo.turnos % 4 == 0:
+            inimigo._miragem = True
+            inimigo.protecao = 1
+            run.log.append(
+                "🪞 A tecelã ergue uma miragem: o próximo golpe causa metade. "
+                "Uma Técnica a dissipa (+3).")
+            return True
+        return False
+
+    def reduzir_dano_recebido(self, run, inimigo, dano):
+        if getattr(inimigo, "_miragem", False) and (run.golpe_tecnica
+                                                    or run.golpe_ativa):
+            inimigo._miragem = False
+            inimigo.protecao = 0
+            run.log.append(
+                "🪞 A Técnica atravessa a miragem e a dissipa: +3 de dano.")
+            return dano + 3
+        return dano
+
+    def intencao(self, run, inimigo):
+        if getattr(inimigo, "_miragem", False):
+            return "Miragem ativa: golpe básico causa metade; Técnica/ativa dissipa e causa +3."
+        if (inimigo.turnos + 1) % 4 == 0:
+            return "Vai erguer uma miragem e perder o turno. Prepare uma Técnica."
+        return "Golpe direto."
+
+
+@registrar_habilidade("minuto_devorado")
+class MinutoDevorado(HabilidadeInimiga):
+    nome = "Minuto Devorado"
+    descricao = ("A cada 3 turnos devora um minuto: drena 2 Foco e recupera "
+                 "3 de vida, gastando o turno.")
+
+    def ao_turno(self, run, inimigo):
+        if inimigo.turnos % 3 == 0:
+            antes = run.foco
+            run.foco = max(0, run.foco - 2)
+            cura = _curar_inimigo(inimigo, 3)
+            run.log.append(
+                "⏳ O devorador engole um minuto: "
+                + (f"drena {antes - run.foco} Foco" if antes else "não encontra Foco")
+                + (f" e recupera {cura} de vida." if cura else "."))
+            return True
+        return False
+
+    def intencao(self, run, inimigo):
+        if (inimigo.turnos + 1) % 3 == 0:
+            return ("Vai devorar um minuto e perder o turno: drena 2 Foco e "
+                    "cura 3. Gaste o Foco antes.")
+        return "Golpe direto."
+
+
+@registrar_habilidade("palavras_gastas")
+class PalavrasGastas(HabilidadeInimiga):
+    nome = "Palavras Gastas"
+    descricao = ("Cada Técnica/ativa sua é memorizada: o próximo golpe dela "
+                 "causa +3 por palavra (máx. +6) e então zera.")
+
+    def reduzir_dano_recebido(self, run, inimigo, dano):
+        if run.golpe_tecnica or run.golpe_ativa:
+            palavras = getattr(inimigo, "_palavras", 0)
+            if palavras < 6:
+                inimigo._palavras = min(6, palavras + 3)
+                run.log.append(
+                    f"📜 O arauto memoriza sua palavra ({inimigo._palavras}/6).")
+        return dano
+
+    def modificar_ataque(self, run, inimigo, dano):
+        palavras = getattr(inimigo, "_palavras", 0)
+        if palavras:
+            inimigo._palavras = 0
+            run.log.append(f"📜 As palavras gastas ecoam: +{palavras} de dano.")
+            return dano + palavras
+        return dano
+
+    def intencao(self, run, inimigo):
+        palavras = getattr(inimigo, "_palavras", 0)
+        if palavras:
+            return f"Golpe com +{palavras} de palavras memorizadas. Guarde ou use básico."
+        return "Golpe direto. Técnicas/ativas alimentam o próximo golpe dele."
+
+
+@registrar_habilidade("instante_perdido")
+class InstantePerdido(HabilidadeInimiga):
+    nome = "Instante Perdido"
+    descricao = ("A cada 3 turnos desaparece por um turno (os golpes causam "
+                 "1) e volta no turno seguinte com +2.")
+
+    def ao_turno(self, run, inimigo):
+        if getattr(inimigo, "_instante_ausente", False):
+            inimigo._instante_ausente = False
+            inimigo._instante_retorno = True
+            run.log.append("🌀 A sombra volta de um instante que não existiu.")
+            return False
+        if inimigo.turnos % 3 == 0:
+            inimigo._instante_ausente = True
+            run.log.append(
+                "🌀 A sombra some por um instante. Aproveite para se preparar.")
+            return True
+        return False
+
+    def reduzir_dano_recebido(self, run, inimigo, dano):
+        if getattr(inimigo, "_instante_ausente", False):
+            return 1
+        return dano
+
+    def modificar_ataque(self, run, inimigo, dano):
+        if getattr(inimigo, "_instante_retorno", False):
+            inimigo._instante_retorno = False
+            run.log.append("🌀 O retorno do instante perdido causa +2.")
+            return dano + 2
+        return dano
+
+    def intencao(self, run, inimigo):
+        if getattr(inimigo, "_instante_ausente", False):
+            return "Ausente: seus golpes causam 1. Ele volta no próximo turno com +2."
+        if (inimigo.turnos + 1) % 3 == 0:
+            return "Vai desaparecer e perder o turno. Use Concentrar ou cure-se."
+        return "Golpe direto."
+
+
+@registrar_habilidade("tempo_parado")
+class TempoParado(HabilidadeInimiga):
+    nome = "Tempo Parado"
+    descricao = ("A cada 5 turnos para o ponteiro: você perde o próximo "
+                 "ataque, ele perde o turno e você recupera 1 Foco.")
+
+    def ao_turno(self, run, inimigo):
+        if inimigo.turnos % 5 == 0:
+            run.ataque_bloqueado = True
+            run.ganhar_foco(1)
+            run.log.append(
+                "⏹️ O ponteiro para: seu próximo ataque falha, ele perde o "
+                "turno e você recupera 1 Foco.")
+            return True
+        return False
+
+    def intencao(self, run, inimigo):
+        if (inimigo.turnos + 1) % 5 == 0:
+            return ("Vai parar o tempo: seu próximo ataque falha, mas ele "
+                    "perde o turno. Use Guardar ou Concentrar.")
+        return "Golpe direto. O ponteiro para em breve."
+
+
+@registrar_habilidade("fome_do_amanha")
+class FomeDoAmanha(HabilidadeInimiga):
+    nome = "Fome do Amanhã"
+    descricao = ("Cada golpe que fere você aumenta o próximo em +1 (máx. "
+                 "+4). Guardar reduz 2 desse acúmulo.")
+
+    def apos_golpe(self, run, inimigo, vida_perdida):
+        if vida_perdida > 0:
+            fome = getattr(inimigo, "_fome", 0)
+            inimigo._fome = min(4, fome + 1)
+
+    def modificar_ataque(self, run, inimigo, dano):
+        fome = getattr(inimigo, "_fome", 0)
+        if fome:
+            run.log.append(f"🍽️ A fome do amanhã acumula +{fome} de dano.")
+            return dano + fome
+        return dano
+
+    def ao_turno(self, run, inimigo):
+        if run.guarda and getattr(inimigo, "_fome", 0):
+            perdido = min(2, inimigo._fome)
+            inimigo._fome -= perdido
+            run.log.append(
+                f"🛡️ Sua guarda nega {perdido} de fome acumulada.")
+        return False
+
+    def intencao(self, run, inimigo):
+        fome = getattr(inimigo, "_fome", 0)
+        if fome:
+            return f"Golpe com +{fome} de fome. Guardar reduz o acúmulo em 2."
+        return "Golpe direto. Cada golpe que fere você aumenta a fome."
+
+
+# ============================================================
+# DA'KOR — CHEFES
+# ============================================================
+
+@registrar_habilidade("travessia_forcada")
+class TravessiaForcada(HabilidadeInimiga):
+    nome = "Travessia Forçada"
+    descricao = ("A cada 4 turnos telegrafa um golpe +60% que deixa "
+                 "sangramento por 2 turnos. Guarda ou atordoamento interrompem.")
+
+    def _aplicar(self, run, inimigo):
+        perdida = _golpe_inimigo(
+            run, inimigo, 1.6, rotulo="usa **Travessia Forçada**")
+        if perdida > 0:
+            run.sangramento = max(run.sangramento, 2)
+            return "🩸 A travessia deixa você sangrando por 2 turnos."
+        return "A travessia não encontra carne."
+
+    def escolher_acao(self, run, inimigo):
+        if inimigo.turnos and inimigo.turnos % 4 == 0:
+            return AcaoInimiga(
+                "travessia_forcada", "Travessia Forçada",
+                "Ataque telegrafado (+60%) com sangramento. "
+                "Guarde ou atordoe para interromper.",
+                prepara=True, interrompivel=True, aplicar=self._aplicar)
+        return escolher_acao_chefe(run, inimigo)
+
+    def intencao(self, run, inimigo):
+        if (inimigo.turnos + 1) % 4 == 0:
+            return ("Vai preparar a Travessia Forçada (+60% e sangramento). "
+                    "Guarde para interromper.")
+        return "Golpe direto. A Travessia volta em breve."
+
+
+@registrar_habilidade("troca_de_rosto")
+class TrocaDeRosto(HabilidadeInimiga):
+    nome = "Troca de Rosto"
+    descricao = ("Alterna a cada 2 turnos: Rosto de Pedra reduz 4 de dano; "
+                 "Rosto de Fome causa +4. A intenção anuncia a face.")
+
+    def ao_turno(self, run, inimigo):
+        if inimigo.turnos % 2 == 0:
+            pedra = not getattr(inimigo, "_rosto_pedra", True)
+            inimigo._rosto_pedra = pedra
+            run.log.append(
+                "🎭 A mãe troca de rosto: "
+                + ("Pedra (reduz 4 de dano)." if pedra
+                   else "Fome (+4 de dano)."))
+        return False
+
+    def reduzir_dano_recebido(self, run, inimigo, dano):
+        if getattr(inimigo, "_rosto_pedra", True):
+            return max(1, dano - 4)
+        return dano
+
+    def modificar_ataque(self, run, inimigo, dano):
+        if not getattr(inimigo, "_rosto_pedra", True):
+            return dano + 4
+        return dano
+
+    def intencao(self, run, inimigo):
+        pedra = getattr(inimigo, "_rosto_pedra", True)
+        if pedra:
+            return "Rosto de Pedra: reduz 4 de dano. A face de Fome vem a seguir."
+        return "Rosto de Fome: golpe +4. Guarde ou use barreira."
+
+
+@registrar_habilidade("fatura_do_colecionador")
+class FaturaDoColecionador(HabilidadeInimiga):
+    nome = "Fatura do Colecionador"
+    descricao = ("A cada 4 turnos cobra a fatura: +2 de dano por item ou "
+                 "relíquia sua (máx. +6). A intenção avisa a cobrança.")
+
+    def modificar_ataque(self, run, inimigo, dano):
+        if inimigo.turnos % 4 == 0:
+            bens = (len(run.equipados) + len(run.itens_efeitos)
+                    + len(run.reliquias))
+            extra = min(6, bens * 2)
+            if extra:
+                run.log.append(
+                    f"🧾 O coletor cobra a fatura por {bens} bem(ns): +{extra}.")
+                return dano + extra
+        return dano
+
+    def intencao(self, run, inimigo):
+        if (inimigo.turnos + 1) % 4 == 0:
+            bens = (len(run.equipados) + len(run.itens_efeitos)
+                    + len(run.reliquias))
+            return (f"Vai cobrar a fatura: +{min(6, bens * 2)} de dano por "
+                    "seus itens. Guarde para cortar pela metade.")
+        return "Golpe direto. A fatura vence em breve."
+
+
+@registrar_habilidade("mascaras_trocadas")
+class MascarasTrocadas(HabilidadeInimiga):
+    nome = "Máscaras Trocadas"
+    descricao = ("Cada golpe seu troca a máscara atingida: Pedra absorve 3; "
+                 "Espinhos devolve 2 (barreira absorve; nunca mata).")
+
+    def reduzir_dano_recebido(self, run, inimigo, dano):
+        if dano <= 0:
+            return dano
+        if getattr(inimigo, "_mascara_pedra", True):
+            inimigo._mascara_pedra = False
+            run.log.append(
+                "🎭 A máscara de pedra absorve 3 — agora a de espinhos está à mostra.")
+            return max(1, dano - 3)
+        inimigo._mascara_pedra = True
+        perda = _ferir_com_barreira(run, 2)
+        run.log.append(
+            "🎭 A máscara de espinhos devolve 2"
+            + (f" ({perda} atravessam a barreira)." if perda
+               else " — a barreira absorve."))
+        return dano
+
+    def intencao(self, run, inimigo):
+        if getattr(inimigo, "_mascara_pedra", True):
+            return "Máscara de Pedra: absorve 3 do próximo golpe. O próximo troca para espinhos."
+        return "Máscara de Espinhos: devolve 2. A barreira absorve; o próximo golpe troca para pedra."
+
+
+@registrar_habilidade("luz_do_farol")
+class LuzDoFarol(HabilidadeInimiga):
+    nome = "Luz do Farol"
+    descricao = ("A cada 3 turnos acende o farol: marca você e o próximo "
+                 "golpe causa +5. Guardar no turno da luz encoberta o farol "
+                 "e reduz 1 do ataque dela.")
+
+    def ao_turno(self, run, inimigo):
+        if inimigo.turnos % 3 == 0:
+            if run.guarda:
+                inimigo.ataque = max(1, inimigo.ataque - 1)
+                run.log.append(
+                    "🌑 Você cobre o farol com a guarda: a viúva perde 1 de ataque.")
+                return True
+            run.marcado = True
+            inimigo._luz_farol = True
+            run.log.append(
+                "🕯️ O farol acende: você está marcado e o próximo golpe causa +5.")
+        return False
+
+    def modificar_ataque(self, run, inimigo, dano):
+        if getattr(inimigo, "_luz_farol", False):
+            inimigo._luz_farol = False
+            run.marcado = False
+            return dano + 5
+        return dano
+
+    def intencao(self, run, inimigo):
+        if getattr(inimigo, "_luz_farol", False):
+            return "Golpe marcado pelo farol: +5. Guarde ou use barreira."
+        if (inimigo.turnos + 1) % 3 == 0:
+            return "Vai acender o farol e marcar você (+5). Guarde para encobrir a luz."
+        return "Golpe direto. O farol acende em breve."
+
+
+@registrar_habilidade("pagina_arrancada")
+class PaginaArrancada(HabilidadeInimiga):
+    nome = "Página Arrancada"
+    descricao = ("A cada 5 turnos arranca uma página: recupera 4 de vida e "
+                 "reduz 1 do seu ataque por 2 páginas. Guardar protege a página.")
+
+    def ao_turno(self, run, inimigo):
+        if inimigo.turnos % 5 == 0:
+            cura = _curar_inimigo(inimigo, 4)
+            paginas = getattr(inimigo, "_paginas", 0)
+            if run.guarda:
+                run.log.append(
+                    "📖 Sua guarda protege a página"
+                    + (f"; ele ainda recupera {cura} de vida." if cura else "."))
+            elif paginas < 2:
+                run.ataque = max(1, run.ataque - 1)
+                inimigo._paginas = paginas + 1
+                run.log.append(
+                    f"📖 O arquivista arranca uma página ({paginas + 1}/2): "
+                    "-1 de ataque até o fim do combate"
+                    + (f" e +{cura} de vida." if cura else "."))
+            else:
+                run.log.append(
+                    "📖 Não há mais páginas para arrancar"
+                    + (f"; ele recupera {cura} de vida." if cura else "."))
+            return True
+        return False
+
+    def intencao(self, run, inimigo):
+        if (inimigo.turnos + 1) % 5 == 0:
+            paginas = getattr(inimigo, "_paginas", 0)
+            if paginas < 2:
+                return ("Vai arrancar uma página: -1 do seu ataque e cura 4. "
+                        "Guarde para proteger a página.")
+            return "Vai arrancar uma página, mas as duas já foram perdidas. Guarde mesmo assim."
+        return "Golpe direto. A página é arrancada a cada 5 turnos."
+
+
+# ============================================================
+# ERA A VAPOR — CHEFES
+# ============================================================
+
+@registrar_habilidade("linha_de_montagem")
+class LinhaDeMontagem(HabilidadeInimiga):
+    nome = "Linha de Montagem"
+    descricao = ("A cada 3 turnos monta uma peça: +1 ataque e 3 de vida (máx. "
+                 "3). Uma Técnica/ativa desmonta uma peça.")
+
+    def ao_turno(self, run, inimigo):
+        if inimigo.turnos % 3 == 0:
+            pecas = getattr(inimigo, "_pecas", 0)
+            if pecas < 3:
+                inimigo._pecas = pecas + 1
+                inimigo.ataque += 1
+                cura = _curar_inimigo(inimigo, 3)
+                run.log.append(
+                    f"⚙️ O engenheiro monta uma peça ({pecas + 1}/3): "
+                    "+1 ataque" + (f" e +{cura} de vida." if cura else "."))
+                return True
+        return False
+
+    def reduzir_dano_recebido(self, run, inimigo, dano):
+        if (run.golpe_tecnica or run.golpe_ativa) and getattr(
+                inimigo, "_pecas", 0) > 0:
+            inimigo._pecas -= 1
+            inimigo.ataque = max(1, inimigo.ataque - 1)
+            run.log.append(
+                f"⚙️ Sua Técnica desmonta uma peça ({inimigo._pecas}/3 restantes).")
+        return dano
+
+    def intencao(self, run, inimigo):
+        pecas = getattr(inimigo, "_pecas", 0)
+        if pecas >= 3:
+            return "Máquina completa (+3 ataque). Use Técnicas para desmontar as peças."
+        if (inimigo.turnos + 1) % 3 == 0:
+            return f"Vai montar uma peça ({pecas}/3) e perder o turno. Use Técnica para desmontar."
+        return f"Golpe direto. Peças montadas: {pecas}/3."
+
+
+@registrar_habilidade("combustao")
+class Combustao(HabilidadeInimiga):
+    nome = "Combustão"
+    descricao = ("A cada 2 turnos o ar queima: consome 3 de barreira ou "
+                 "aplica queimadura e causa +2 no mesmo golpe.")
+
+    def ao_turno(self, run, inimigo):
+        if inimigo.turnos % 2 == 0:
+            if run.barreira > 0:
+                absorvido = min(3, run.barreira)
+                run.barreira -= absorvido
+                run.log.append(
+                    f"🔥 A fornalha consome {absorvido} de barreira antes de queimar.")
+            else:
+                run.queimadura = max(run.queimadura, 1)
+                inimigo._combustao = True
+                run.log.append(
+                    "🔥 O ar incendeia: queimadura e +2 no golpe deste turno.")
+        return False
+
+    def modificar_ataque(self, run, inimigo, dano):
+        if getattr(inimigo, "_combustao", False):
+            inimigo._combustao = False
+            return dano + 2
+        return dano
+
+    def intencao(self, run, inimigo):
+        if run.barreira > 0:
+            return "Vai consumir 3 de barreira. Sem barreira, aplica queimadura e +2."
+        if (inimigo.turnos + 1) % 2 == 0:
+            return "Vai incendiar o ar: queimadura e +2. Barreira evita a queimadura."
+        return "Golpe direto."
+
+
+@registrar_habilidade("fios_cruzados")
+class FiosCruzados(HabilidadeInimiga):
+    nome = "Fios Cruzados"
+    descricao = ("A cada 3 turnos telegrafa Fios Cruzados: seu próximo "
+                 "ataque falha e o golpe seguinte causa +2. Guarda interrompe.")
+
+    def _aplicar(self, run, inimigo):
+        run.ataque_bloqueado = True
+        inimigo._fios_bonus = True
+        return ("🪡 Os fios puxam seus braços: o próximo ataque falha e o "
+                "golpe seguinte causa +2.")
+
+    def escolher_acao(self, run, inimigo):
+        if inimigo.turnos and inimigo.turnos % 3 == 0:
+            return AcaoInimiga(
+                "fios_cruzados", "Fios Cruzados",
+                "Telegrafado: seu próximo ataque falha e o golpe seguinte "
+                "causa +2. Guarde ou atordoe para interromper.",
+                prepara=True, interrompivel=True, aplicar=self._aplicar)
+        return escolher_acao_chefe(run, inimigo)
+
+    def modificar_ataque(self, run, inimigo, dano):
+        if getattr(inimigo, "_fios_bonus", False):
+            inimigo._fios_bonus = False
+            return dano + 2
+        return dano
+
+    def intencao(self, run, inimigo):
+        if (inimigo.turnos + 1) % 3 == 0:
+            return ("Vai preparar Fios Cruzados: seu próximo ataque falha e o "
+                    "golpe seguinte causa +2. Guarde para interromper.")
+        return "Golpe direto."
+
+
+@registrar_habilidade("duas_faces_do_latao")
+class DuasFacesDoLatao(HabilidadeInimiga):
+    nome = "Duas Faces do Latão"
+    descricao = ("Alterna a cada 3 turnos: face de Latão reduz 3 de dano e "
+                 "remenda 2; face de Vidro causa +3 e não reduz dano.")
+
+    def ao_turno(self, run, inimigo):
+        if inimigo.turnos % 3 == 0:
+            latao = not getattr(inimigo, "_fase_latao", True)
+            inimigo._fase_latao = latao
+            run.log.append(
+                "🔔 A dama vira a face: "
+                + ("Latão (defesa e remendo)." if latao
+                   else "Vidro (+3 de dano)."))
+        if getattr(inimigo, "_fase_latao", True):
+            cura = _curar_inimigo(inimigo, 2)
+            if cura:
+                run.log.append(f"🔔 A face de latão remenda {cura} de vida.")
+        return False
+
+    def reduzir_dano_recebido(self, run, inimigo, dano):
+        if getattr(inimigo, "_fase_latao", True):
+            return max(1, dano - 3)
+        return dano
+
+    def modificar_ataque(self, run, inimigo, dano):
+        if not getattr(inimigo, "_fase_latao", True):
+            return dano + 3
+        return dano
+
+    def intencao(self, run, inimigo):
+        if getattr(inimigo, "_fase_latao", True):
+            return "Face de Latão: reduz 3 e remenda 2. A face de Vidro vem a seguir."
+        return "Face de Vidro: golpe +3. Guarde ou use barreira."
+
+
+@registrar_habilidade("hora_final")
+class HoraFinal(HabilidadeInimiga):
+    nome = "Hora Final"
+    descricao = ("A cada 5 turnos telegrafa um golpe +80% que falha seu "
+                 "próximo ataque se acertar. Guarda ou atordoamento interrompem.")
+
+    def _aplicar(self, run, inimigo):
+        perdida = _golpe_inimigo(
+            run, inimigo, 1.8, rotulo="usa **Hora Final**")
+        if perdida > 0:
+            run.ataque_bloqueado = True
+            return "⏳ O ponteiro trava: seu próximo ataque falha."
+        return "O ponteiro passa sem tocar você."
+
+    def escolher_acao(self, run, inimigo):
+        if inimigo.turnos and inimigo.turnos % 5 == 0:
+            return AcaoInimiga(
+                "hora_final", "Hora Final",
+                "Ataque telegrafado (+80%). Se acertar, seu próximo ataque "
+                "falha. Guarde ou atordoe para interromper.",
+                prepara=True, interrompivel=True, aplicar=self._aplicar)
+        return escolher_acao_chefe(run, inimigo)
+
+    def intencao(self, run, inimigo):
+        if (inimigo.turnos + 1) % 5 == 0:
+            return ("Vai preparar a Hora Final (+80% e bloqueio do próximo "
+                    "ataque). Guarde para interromper.")
+        return "Golpe direto. A Hora Final se aproxima."
+
+
+@registrar_habilidade("oferenda_de_carvao")
+class OferendaDeCarvao(HabilidadeInimiga):
+    nome = "Oferenda de Carvão"
+    descricao = ("Se você usar um item, a catedral queima a oferenda: "
+                 "recupera 4 de vida e ganha +1 de ataque (máx. +3), "
+                 "gastando o turno.")
+
+    def ao_turno(self, run, inimigo):
+        observacoes = inimigo.memoria.observacoes
+        if observacoes and observacoes[-1] == "item":
+            cura = _curar_inimigo(inimigo, 4)
+            oferendas = getattr(inimigo, "_oferendas", 0)
+            if oferendas < 3:
+                inimigo._oferendas = oferendas + 1
+                inimigo.ataque += 1
+            run.log.append(
+                "⛪ A catedral queima sua oferenda: "
+                + (f"recupera {cura} de vida" if cura else "não encontra carne")
+                + (f" e ganha +1 de ataque ({inimigo._oferendas}/3)."
+                   if oferendas < 3 else "."))
+            return True
+        return False
+
+    def intencao(self, run, inimigo):
+        oferendas = getattr(inimigo, "_oferendas", 0)
+        return (f"Se você usar item, queima a oferenda: cura 4 e +1 ataque "
+                f"({oferendas}/3). Golpe direto caso contrário.")
+
+
+# ============================================================
+# FUTURO DISTORCIDO — CHEFES
+# ============================================================
+
+@registrar_habilidade("reflexo_do_ultimo_dia")
+class ReflexoDoUltimoDia(HabilidadeInimiga):
+    nome = "Reflexo do Último Dia"
+    descricao = ("A cada 3 turnos telegrafa um reflexo: devolve metade do "
+                 "seu último dano (3 a 10). Guarda interrompe; barreira absorve.")
+
+    def reduzir_dano_recebido(self, run, inimigo, dano):
+        inimigo._ultimo_dano = max(0, dano)
+        return dano
+
+    def _aplicar(self, run, inimigo):
+        base = getattr(inimigo, "_ultimo_dano", 0)
+        dano = min(10, max(3, base // 2))
+        perdida = receber_dano(run, inimigo, dano)
+        return (f"🪞 O espelho devolve o último dia: {perdida} de dano "
+                "após suas defesas.")
+
+    def escolher_acao(self, run, inimigo):
+        if inimigo.turnos and inimigo.turnos % 3 == 0:
+            return AcaoInimiga(
+                "reflexo_do_ultimo_dia", "Reflexo do Último Dia",
+                "Telegrafado: devolve metade do seu último dano (3 a 10). "
+                "Guarde ou atordoe para interromper.",
+                prepara=True, interrompivel=True, aplicar=self._aplicar)
+        return escolher_acao_chefe(run, inimigo)
+
+    def intencao(self, run, inimigo):
+        if (inimigo.turnos + 1) % 3 == 0:
+            return ("Vai preparar o Reflexo do Último Dia (metade do seu "
+                    "último dano). Guarde para interromper.")
+        return "Golpe direto. O reflexo volta em breve."
+
+
+@registrar_habilidade("sussurro_do_futuro")
+class SussurroDoFuturo(HabilidadeInimiga):
+    nome = "Sussurro do Futuro"
+    descricao = ("A cada 4 turnos telegrafa um golpe +60%. Enquanto estiver "
+                 "pendente, a fenda sofre +3 de dano. Guarda interrompe.")
+
+    def escolher_acao(self, run, inimigo):
+        if inimigo.turnos and inimigo.turnos % 4 == 0:
+            return AcaoInimiga(
+                "sussurro_do_futuro", "Sussurro do Futuro",
+                "Ataque telegrafado (+60%). Enquanto pendente, a fenda sofre "
+                "+3 de dano. Guarde ou atordoe para interromper.",
+                prepara=True, interrompivel=True, dano_pct=1.6)
+        return escolher_acao_chefe(run, inimigo)
+
+    def reduzir_dano_recebido(self, run, inimigo, dano):
+        pendente = inimigo.acao_pendente
+        if pendente is not None and pendente.chave == "sussurro_do_futuro":
+            return dano + 3
+        return dano
+
+    def intencao(self, run, inimigo):
+        if (inimigo.turnos + 1) % 4 == 0:
+            return ("Vai preparar o Sussurro do Futuro (+60%). Enquanto "
+                    "pendente, ela sofre +3. Guarde para interromper.")
+        if inimigo.acao_pendente is not None:
+            return "Sussurro pendente: ataque agora para +3 e Guarde para cancelar."
+        return "Golpe direto."
+
+
+@registrar_habilidade("possibilidades_colhidas")
+class PossibilidadesColhidas(HabilidadeInimiga):
+    nome = "Possibilidades Colhidas"
+    descricao = ("Cada Técnica/ativa sua é colhida. Ao colher 2, telegrafa "
+                 "um golpe +50% que pode ser interrompido com Guarda.")
+
+    def reduzir_dano_recebido(self, run, inimigo, dano):
+        if run.golpe_tecnica or run.golpe_ativa:
+            possibilidades = min(2, getattr(inimigo, "_possibilidades", 0) + 1)
+            inimigo._possibilidades = possibilidades
+            run.log.append(
+                f"🌌 O colecionador colhe uma possibilidade ({possibilidades}/2).")
+        return dano
+
+    def escolher_acao(self, run, inimigo):
+        if getattr(inimigo, "_possibilidades", 0) >= 2:
+            inimigo._possibilidades = 0
+            return AcaoInimiga(
+                "colheita_de_futuros", "Colheita de Futuros",
+                "Ataque telegrafado (+50%). Guarde ou atordoe para interromper.",
+                prepara=True, interrompivel=True, dano_pct=1.5)
+        return escolher_acao_chefe(run, inimigo)
+
+    def intencao(self, run, inimigo):
+        possibilidades = getattr(inimigo, "_possibilidades", 0)
+        if possibilidades >= 2:
+            return "Duas possibilidades colhidas: vai preparar um golpe +50%. Guarde."
+        return (f"Golpe direto. Possibilidades colhidas: {possibilidades}/2. "
+                "Técnicas/ativas alimentam a colheita.")
+
+
+@registrar_habilidade("ausencia_planejada")
+class AusenciaPlanejada(HabilidadeInimiga):
+    nome = "Ausência Planejada"
+    descricao = ("A cada 4 turnos desaparece por um turno (golpes causam "
+                 "metade) e você recupera 2 Foco. Volta com +4 de dano.")
+
+    def ao_turno(self, run, inimigo):
+        if getattr(inimigo, "_crianca_ausente", False):
+            inimigo._crianca_ausente = False
+            inimigo._crianca_retorno = True
+            run.log.append("👧 A criança retorna de um futuro que não houve.")
+            return False
+        if inimigo.turnos % 4 == 0:
+            inimigo._crianca_ausente = True
+            run.ganhar_foco(2)
+            run.log.append(
+                "👧 A criança desaparece: você recupera 2 Foco. Ela volta com +4.")
+            return True
+        return False
+
+    def reduzir_dano_recebido(self, run, inimigo, dano):
+        if getattr(inimigo, "_crianca_ausente", False):
+            return max(1, dano // 2)
+        return dano
+
+    def modificar_ataque(self, run, inimigo, dano):
+        if getattr(inimigo, "_crianca_retorno", False):
+            inimigo._crianca_retorno = False
+            run.log.append("👧 O retorno da criança causa +4.")
+            return dano + 4
+        return dano
+
+    def intencao(self, run, inimigo):
+        if getattr(inimigo, "_crianca_ausente", False):
+            return "Ausente: golpes causam metade. Volta no próximo turno com +4."
+        if (inimigo.turnos + 1) % 4 == 0:
+            return "Vai desaparecer e perder o turno. Você ganha 2 Foco; guarde o retorno."
+        return "Golpe direto. A ausência volta em breve."
+
+
+@registrar_habilidade("conclusao_antecipada")
+class ConclusaoAntecipada(HabilidadeInimiga):
+    nome = "Conclusão Antecipada"
+    descricao = ("A cada 4 turnos telegrafa um golpe +60%; abaixo de 40% de "
+                 "sua vida, todo golpe dela causa +2. Guarda interrompe.")
+
+    def modificar_ataque(self, run, inimigo, dano):
+        if run.vida <= run.vida_maxima * 0.4:
+            return dano + 2
+        return dano
+
+    def escolher_acao(self, run, inimigo):
+        if inimigo.turnos and inimigo.turnos % 4 == 0:
+            return AcaoInimiga(
+                "conclusao_antecipada", "Conclusão Antecipada",
+                "Ataque telegrafado (+60%). Abaixo de 40% de vida, causa +2 "
+                "adicional. Guarde ou atordoe para interromper.",
+                prepara=True, interrompivel=True, dano_pct=1.6)
+        return escolher_acao_chefe(run, inimigo)
+
+    def intencao(self, run, inimigo):
+        if run.vida <= run.vida_maxima * 0.4:
+            return "Você está abaixo de 40%: todo golpe causa +2. Guarde ou cure."
+        if (inimigo.turnos + 1) % 4 == 0:
+            return ("Vai preparar a Conclusão Antecipada (+60%). Abaixo de "
+                    "40% de vida, +2 adicional. Guarde para interromper.")
+        return "Golpe direto."
+
+
+@registrar_habilidade("espelho_do_ultimo_ato")
+class EspelhoDoUltimoAto(HabilidadeInimiga):
+    nome = "Espelho do Último Ato"
+    descricao = ("A cada 3 turnos espelha sua última ação: atacar/tecnica "
+                 "reduz 4 do próximo golpe; guardar/concentrar/item causa +3.")
+
+    def ao_turno(self, run, inimigo):
+        if inimigo.turnos % 3 == 0:
+            observacoes = inimigo.memoria.observacoes
+            if not observacoes:
+                return False
+            ultimo = observacoes[-1]
+            if ultimo in ("atacar", "tecnica", "ativa"):
+                inimigo._espelho_def = True
+                run.log.append(
+                    "🪞 A testemunha espelha seu ataque: reduz 4 do próximo golpe.")
+            elif ultimo in ("guardar", "concentrar", "item"):
+                inimigo._espelho_atk = True
+                run.log.append(
+                    "🪞 A testemunha espelha sua cautela: +3 no próximo golpe.")
+        return False
+
+    def reduzir_dano_recebido(self, run, inimigo, dano):
+        if getattr(inimigo, "_espelho_def", False):
+            inimigo._espelho_def = False
+            return max(1, dano - 4)
+        return dano
+
+    def modificar_ataque(self, run, inimigo, dano):
+        if getattr(inimigo, "_espelho_atk", False):
+            inimigo._espelho_atk = False
+            return dano + 3
+        return dano
+
+    def intencao(self, run, inimigo):
+        if getattr(inimigo, "_espelho_def", False):
+            return "Espelho de ataque: reduz 4 do seu próximo golpe."
+        if getattr(inimigo, "_espelho_atk", False):
+            return "Espelho de cautela: golpe +3. Guarde."
+        return ("Golpe direto. A cada 3 turnos ela espelha sua última ação: "
+                "atacar/tecnica reduz 4; guardar/concentrar/item dá +3.")
+
+
 CRIATURAS: list[EnemySpec] = []
 
 
@@ -1998,6 +3169,279 @@ registrar_criatura(EnemySpec(
     "veu_de_cinzas",
     "Uma noiva feita daquilo que sobra depois que o fogo termina.",
     evento="semana_dos_mortos",
+))
+
+
+# ============================================================
+# EXPANSÃO 3 — 18 MINI-CHEFES E 18 CHEFES (6 + 6 POR ERA)
+# ============================================================
+# Stats calibrados pelas faixas já existentes em cada era/nível. Nenhuma
+# criatura aqui altera tabelas, sorteios ou recompensas: elas apenas
+# entram nos pools de mini-chefe e chefe que o motor já consulta.
+# Contra o jogador, toda habilidade tem aviso na intenção e alguma forma
+# de resposta (Guarda, atordoamento, Técnica, barreira ou gestão de Foco).
+
+# ---------- Da'kor — mini-chefes (nível 3) ----------
+registrar_criatura(EnemySpec(
+    "Vigia da Ponte Quebrada", "Da'kor", 3, 60, 10, 3, 44, 14,
+    "pedagio_de_nevoa",
+    "Cobra pedágio em Foco para deixar você atravessar. Quem não paga "
+    "atravessa com raiva.",
+    categoria="mini_chefe",
+))
+registrar_criatura(EnemySpec(
+    "Afiador de Ossos", "Da'kor", 3, 62, 11, 2, 46, 14,
+    "gume_ritual",
+    "Afia o próprio braço na pedra. Enquanto afia, fica exposto; depois, "
+    "o golpe corta fundo.",
+    categoria="mini_chefe",
+))
+registrar_criatura(EnemySpec(
+    "Coro de Afogados", "Da'kor", 3, 64, 10, 3, 46, 15,
+    "coro_submerso",
+    "Canta com a água nos pulmões. Cada canto devolve um pouco de vida "
+    "e rouba o fôlego de quem escuta.",
+    categoria="mini_chefe",
+))
+registrar_criatura(EnemySpec(
+    "A Costureira de Sombras", "Da'kor", 3, 58, 11, 2, 44, 14,
+    "linha_de_seda",
+    "Costura as sombras dos peregrinos. A linha absorve golpes até que "
+    "os fios comecem a romper.",
+    categoria="mini_chefe",
+))
+registrar_criatura(EnemySpec(
+    "Máscara do Primeiro Rosto", "Da'kor", 3, 60, 10, 3, 45, 14,
+    "rosto_emprestado",
+    "Usa o primeiro rosto que encontrou. Copia o seu gesto uma vez e "
+    "depois racha.",
+    categoria="mini_chefe",
+))
+registrar_criatura(EnemySpec(
+    "Contador de Ossos", "Da'kor", 3, 62, 10, 4, 48, 15,
+    "rancor_contado",
+    "Conta cada osso que você quebra. A conta vence no terceiro golpe.",
+    categoria="mini_chefe",
+))
+
+# ---------- Era a Vapor — mini-chefes (nível 6) ----------
+registrar_criatura(EnemySpec(
+    "A Caldeira Que Respira", "Era a Vapor", 6, 82, 12, 4, 60, 18,
+    "purga_de_vapor",
+    "Uma caldeira com pulmões. De tempos em tempos solta a pressão e "
+    "limpa o que grudou na carcaça.",
+    categoria="mini_chefe",
+))
+registrar_criatura(EnemySpec(
+    "Ladrão de Segundos", "Era a Vapor", 6, 74, 13, 3, 58, 17,
+    "segundo_roubado",
+    "Rouba o instante entre o seu movimento e o golpe. Cada roubo o "
+    "deixa mais rápido.",
+    categoria="mini_chefe",
+))
+registrar_criatura(EnemySpec(
+    "Sentinela da Válvula Mestra", "Era a Vapor", 6, 88, 12, 5, 62, 19,
+    "pressao_controlada",
+    "Segura a pressão até o limite. Enquanto está inteira, absorve; "
+    "quando abre a válvula, ataca mais forte.",
+    categoria="mini_chefe",
+))
+registrar_criatura(EnemySpec(
+    "Fundidor de Placas", "Era a Vapor", 6, 80, 12, 5, 60, 18,
+    "placa_moldada",
+    "Molda uma placa nova a cada ciclo. A placa segura metade do próximo "
+    "golpe.",
+    categoria="mini_chefe",
+))
+registrar_criatura(EnemySpec(
+    "Aranha de Válvulas", "Era a Vapor", 6, 76, 14, 3, 60, 18,
+    "fio_escaldante",
+    "Tecituras de vapor entre as válvulas. Cada golpe seu respinga e "
+    "queima um pouco.",
+    categoria="mini_chefe",
+))
+registrar_criatura(EnemySpec(
+    "Maquinista de Cinzas", "Era a Vapor", 6, 78, 13, 4, 62, 19,
+    "fole_de_cinzas",
+    "Sopra cinzas quentes nos olhos dos passageiros. Quem pisca perde "
+    "um instante de Foco.",
+    categoria="mini_chefe",
+))
+
+# ---------- Futuro Distorcido — mini-chefes (nível 9) ----------
+registrar_criatura(EnemySpec(
+    "Tecelã de Miragens", "Futuro Distorcido", 9, 94, 14, 4, 76, 24,
+    "miragem_tatica",
+    "Tece o futuro em que o seu golpe não acertou. Uma Técnica corta a "
+    "teia.",
+    categoria="mini_chefe",
+))
+registrar_criatura(EnemySpec(
+    "Devorador de Minutos", "Futuro Distorcido", 9, 98, 13, 4, 78, 25,
+    "minuto_devorado",
+    "Engole minutos inteiros. O tempo que falta para você reagir vira "
+    "vida para ele.",
+    categoria="mini_chefe",
+))
+registrar_criatura(EnemySpec(
+    "Arauto das Palavras Gastas", "Futuro Distorcido", 9, 90, 15, 3, 76, 24,
+    "palavras_gastas",
+    "Repete as palavras que você gastou. Quanto mais Técnicas ouve, "
+    "mais forte fica a próxima frase.",
+    categoria="mini_chefe",
+))
+registrar_criatura(EnemySpec(
+    "Sombra do Instante Perdido", "Futuro Distorcido", 9, 96, 14, 3, 78, 25,
+    "instante_perdido",
+    "Existe só no intervalo em que você pisca. Volta sempre com um "
+    "golpe a mais.",
+    categoria="mini_chefe",
+))
+registrar_criatura(EnemySpec(
+    "Ponteiro Parado", "Futuro Distorcido", 9, 100, 13, 5, 80, 26,
+    "tempo_parado",
+    "Um ponteiro que parou no meio do movimento. Quando ele para, o seu "
+    "próximo ataque também para.",
+    categoria="mini_chefe",
+))
+registrar_criatura(EnemySpec(
+    "Fome do Amanhã", "Futuro Distorcido", 9, 92, 15, 4, 78, 25,
+    "fome_do_amanha",
+    "Ainda não comeu, mas já sente fome do que você vai fazer amanhã. "
+    "Cada golpe a alimenta.",
+    categoria="mini_chefe",
+))
+
+# ---------- Da'kor — chefes (níveis 5 e 10) ----------
+registrar_criatura(EnemySpec(
+    "O Barqueiro de Ossos", "Da'kor", 5, 110, 13, 4, 104, 32,
+    "travessia_forcada",
+    "Atravessa o rio de névoa com um barco de costelas. A travessia não "
+    "aceita passageiros vivos por muito tempo.",
+    categoria="chefe",
+))
+registrar_criatura(EnemySpec(
+    "A Mãe das Máscaras", "Da'kor", 5, 118, 14, 4, 112, 34,
+    "troca_de_rosto",
+    "Troca de rosto como quem troca de humor. A face de pedra protege; "
+    "a face de fome morde.",
+    categoria="chefe",
+))
+registrar_criatura(EnemySpec(
+    "O Coletor de Dívidas", "Da'kor", 5, 106, 15, 3, 108, 33,
+    "fatura_do_colecionador",
+    "Cobra pelo que você carrega. Quanto mais relíquias e itens, maior "
+    "a fatura.",
+    categoria="chefe",
+))
+registrar_criatura(EnemySpec(
+    "O Pastor de Máscaras", "Da'kor", 10, 152, 15, 5, 142, 40,
+    "mascaras_trocadas",
+    "Guia um rebanho de máscaras vazias. Cada golpe seu vira uma nova "
+    "face no rebanho.",
+    categoria="chefe",
+))
+registrar_criatura(EnemySpec(
+    "A Viúva do Farol", "Da'kor", 10, 158, 16, 4, 148, 42,
+    "luz_do_farol",
+    "Mantém o farol aceso para os afogados. A luz marca quem ainda "
+    "respira.",
+    categoria="chefe",
+))
+registrar_criatura(EnemySpec(
+    "O Arquivista de Nomes", "Da'kor", 10, 148, 14, 6, 140, 40,
+    "pagina_arrancada",
+    "Arranca páginas do livro dos peregrinos. Cada página arrancada "
+    "apaga um pouco da sua força.",
+    categoria="chefe",
+))
+
+# ---------- Era a Vapor — chefes (níveis 10, 15 e 20) ----------
+registrar_criatura(EnemySpec(
+    "O Engenheiro-Chefe", "Era a Vapor", 10, 150, 15, 5, 148, 42,
+    "linha_de_montagem",
+    "Monta reforços enquanto a linha anda. Uma Técnica desmonta o que "
+    "ele acabou de montar.",
+    categoria="chefe",
+))
+registrar_criatura(EnemySpec(
+    "A Fornalha Viva", "Era a Vapor", 10, 160, 16, 4, 152, 43,
+    "combustao",
+    "O ar ao redor queima antes do corpo. A barreira segura o primeiro "
+    "calor; a queimadura vem depois.",
+    categoria="chefe",
+))
+registrar_criatura(EnemySpec(
+    "O Titereiro de Válvulas", "Era a Vapor", 15, 180, 17, 5, 188, 50,
+    "fios_cruzados",
+    "Puxa os fios que ainda não existem. Os seus braços obedecem antes "
+    "de você decidir.",
+    categoria="chefe",
+))
+registrar_criatura(EnemySpec(
+    "A Dama de Latão", "Era a Vapor", 15, 190, 18, 6, 196, 52,
+    "duas_faces_do_latao",
+    "Uma face de latão que remenda e uma face de vidro que corta. Ela "
+    "alterna sem avisar duas vezes.",
+    categoria="chefe",
+))
+registrar_criatura(EnemySpec(
+    "O Relojoeiro do Fim", "Era a Vapor", 20, 210, 19, 5, 232, 58,
+    "hora_final",
+    "Conserta o último relógio antes do fim. Quando os ponteiros se "
+    "encontram, o seu próximo movimento atrasa.",
+    categoria="chefe",
+))
+registrar_criatura(EnemySpec(
+    "A Catedral de Carvão", "Era a Vapor", 20, 222, 18, 6, 238, 60,
+    "oferenda_de_carvao",
+    "Uma catedral que queima tudo o que você oferece. Cada item usado "
+    "vira calor para ela.",
+    categoria="chefe",
+))
+
+# ---------- Futuro Distorcido — chefes (níveis 15, 20 e 25) ----------
+registrar_criatura(EnemySpec(
+    "O Espelho do Último Dia", "Futuro Distorcido", 15, 178, 17, 5, 190, 50,
+    "reflexo_do_ultimo_dia",
+    "Guarda o reflexo do último dia que aconteceu. Devolve metade do "
+    "que você acabou de fazer.",
+    categoria="chefe",
+))
+registrar_criatura(EnemySpec(
+    "A Fenda que Escuta", "Futuro Distorcido", 15, 186, 18, 4, 196, 52,
+    "sussurro_do_futuro",
+    "Uma fenda que aprendeu a escutar. Enquanto prepara o sussurro, "
+    "fica exposta.",
+    categoria="chefe",
+))
+registrar_criatura(EnemySpec(
+    "O Colecionador de Futuros", "Futuro Distorcido", 20, 212, 18, 6, 228, 58,
+    "possibilidades_colhidas",
+    "Colhe as possibilidades que você descarta. Duas Técnicas bastam "
+    "para completar a colheita.",
+    categoria="chefe",
+))
+registrar_criatura(EnemySpec(
+    "A Criança que Não Foi", "Futuro Distorcido", 20, 206, 19, 5, 224, 57,
+    "ausencia_planejada",
+    "Nunca nasceu, mas aprendeu a voltar. A ausência dela é o único "
+    "descanso que você terá.",
+    categoria="chefe",
+))
+registrar_criatura(EnemySpec(
+    "O Devorador de Conclusões", "Futuro Distorcido", 25, 240, 20, 6, 272, 70,
+    "conclusao_antecipada",
+    "Come o final das histórias antes que elas terminem. Quanto mais "
+    "ferido você está, mais perto do fim ele acredita estar.",
+    categoria="chefe",
+))
+registrar_criatura(EnemySpec(
+    "A Última Testemunha", "Futuro Distorcido", 25, 245, 20, 5, 280, 72,
+    "espelho_do_ultimo_ato",
+    "Viu todos os últimos atos e copia o seu. Atacar vira defesa; "
+    "hesitar vira golpe.",
+    categoria="chefe",
 ))
 
 
