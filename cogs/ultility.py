@@ -112,6 +112,7 @@ TIMEOUT_VIEWS = 180                 # segundos até os botões expirarem
 CATEGORIAS = {
     # Jogos e RPG
     "Games": ("🎮", "Jogos"),
+    "RPG": ("🧭", "RPG Textual"),
     "GameSFA": ("🃏", "SFA — Duelo de cartas"),
     "RupturaTemporal": ("🌀", "Ruptura Temporal"),
     "RupturaDuelo": ("⚔️", "Ruptura — Duelos"),
@@ -171,6 +172,7 @@ EMOJIS_POR_PALAVRA = [
     ("🖼️", ("imagem", "image", "meme", "memes")),
     ("🔍", ("busca", "search")),
     ("🧪", ("teste", "test", "debug", "dev")),
+    ("🧭", ("rpg", "aventura", "ficha", "personagem")),
     ("🃏", ("carta", "cartas", "card", "sfa")),
     ("🎮", ("game", "games", "jogo", "jogos")),
     ("🌀", ("ruptura",)),

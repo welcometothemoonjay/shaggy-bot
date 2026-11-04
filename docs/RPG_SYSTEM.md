@@ -17,6 +17,8 @@ narrativo.
 | Inventário | `rpg_system/inventory.py` | Itens em `ruptura_inventario` |
 | Combate | `rpg_system/combat.py` | Inimigos, turnos, dano, XP e recompensas |
 | Energia | `rpg_system/energy.py` | Recarga automática de 100% a cada 24h |
+| Casas | `rpg_system/houses.py` | Compra, melhoria e apelidos dos tipos de casa |
+| Moderação | `rpg_system/admin.py` | Inspeção e alteração atômica do estado do RPG |
 
 O banco fica em `data/shaggy.db` por padrão. `SHAGGY_DB_PATH` permite usar um
 banco temporário em testes. As transações usam `BEGIN IMMEDIATE`,
@@ -55,10 +57,51 @@ São 19 comandos neste cog: `/rpg`, `/personagem`, `/mochila`, `/mineracao`,
 `/conquistas`, `/energia`, `/relacionamento` e `/propor`.
 
 O bot inteiro tem **100 comandos slash** no carregamento verificado; o limite
-do Discord é 100. `/combate` ocupou a última vaga disponível. `/casa` foi
-removido para liberar espaço e `/equipar` foi adicionado. As informações de
-casa aparecem em `/rpg` e `/personagem`, mas a compra de casa ainda não está
-exposta por comando (ver limitações).
+do Discord é 100. Por isso, todo recurso novo do RPG é exposto por **comandos
+de prefixo `s!`**, que não ocupam o limite de slash. `/casa` não existe como
+slash; a casa é comprada e melhorada por `s!casa`.
+
+### Comandos de prefixo (`s!`)
+
+Jogador:
+
+| Comando | Efeito |
+|---|---|
+| `s!rpg` / `s!ficha` | Cria ou abre a ficha do personagem |
+| `s!mochila` | Lista o inventário por categoria e a picareta em uso |
+| `s!minerar [região]` | Minera na região atual ou informada |
+| `s!trabalhar [profissão]` | Executa a profissão |
+| `s!explorar [região]` | Explora a região |
+| `s!descansar` | Restaura a energia e reinicia o ciclo de 24h |
+| `s!lutar [inimigo]` | Inicia um combate ou repete o ataque |
+| `s!lutar arma <item>` | Troca de arma sem reiniciar o combate |
+| `s!lutar <inimigo> \| <arma>` | Inicia o combate com uma arma específica |
+| `s!casa` | Vê, compra ou melhora a casa |
+| `s!casa comprar <tipo>` | Compra tenda, cabana ou casa de pedra |
+| `s!casa melhorar` | Sobe um nível da casa |
+| `s!objetivos` | Mostra os próximos objetivos |
+| `s!rankingrpg` | Top 10 por XP de personagem no servidor |
+| `s!conquistas [categoria]` | Lista conquistas |
+| `s!ajudarpg` / `s!rphelp` | Ajuda dos comandos de prefixo |
+
+Moderação / desenvolvedor (dono do bot, dono do servidor, `Administrator`,
+`Gerenciar Servidor` ou `Moderar Membros`):
+
+| Comando | Efeito |
+|---|---|
+| `s!rpggive @membro <moedas\|xp\|energia> <valor>` | Concede o valor |
+| `s!rpgtake @membro <moedas\|xp\|energia> <valor>` | Remove o valor |
+| `s!rpgset @membro <moedas\|xp\|energia> <valor>` | Define o valor |
+| `s!rpgitem @membro <quantidade> <item>` | Entrega itens |
+| `s!rpgitemremover @membro <quantidade> <item>` | Remove itens |
+| `s!rpgficha [@membro]` | Inspeciona personagem, saldo, energia e progresso |
+| `s!rpglimparcombate @membro` | Encerra um combate travado |
+| `s!rpgreset @membro confirmar` | Apaga somente o progresso do RPG |
+
+O reset preserva `ruptura_inventario` e `user_stats` (saldo/XP social), pois
+esses dados são compartilhados com a Ruptura Temporal. As alterações passam
+por `rpg_system/admin.py`, usam transação atômica e registram a ação em
+`rpg_acoes`.
 
 ## Progressão de personagem
 
@@ -132,25 +175,36 @@ quantidade final é limitada a 25 por material.
 
 ## Combate
 
-Combate simples por turnos, persistente entre usos de `/combate` e sem
-cooldown adicional. Cada ação custa **4 de energia**.
+Combate simples por turnos, persistente entre usos de `s!lutar` (ou
+`/combate`) e sem cooldown adicional. Cada ação custa **4 de energia**.
+
+São **10 inimigos**, ordenados por nível mínimo:
 
 | Inimigo | Nível mínimo | PV | Ataque | XP de vitória | Abysmus | Dificuldade |
 |---|---:|---:|---|---:|---|---|
+| 🐀 Rato Gigante | 1 | 25 | 3–5 | 18 | 5–12 | Fácil |
 | 👺 Goblin | 1 | 35 | 4–7 | 28 | 8–18 | Fácil |
 | 🧰 Mímico | 2 | 55 | 5–9 | 40 | 80–140 | Média |
 | 😈 Diabrete | 3 | 70 | 8–13 | 55 | 20–35 | Média |
+| 💀 Esqueleto | 4 | 85 | 9–14 | 65 | 18–32 | Média |
 | 🪓 Orc | 5 | 110 | 12–18 | 85 | 35–60 | Difícil |
+| 🕷️ Aranha Gigante | 6 | 130 | 11–17 | 110 | 40–70 | Difícil |
 | 🐺 Cérbero | 8 | 170 | 14–20 | 180 | 120–200 | Lendário |
+| 🧌 Troll | 10 | 220 | 18–26 | 220 | 90–150 | Difícil |
+| 🐉 Dragão Ancião | 15 | 340 | 24–34 | 420 | 250–400 | Lendário |
 
 O Cérbero é o único inimigo **especial** e ativa a conquista
 `cacador_lendas`. Abaixo de metade da vida ele entra em fúria e causa 35% mais
-dano.
+dano. Os demais inimigos são normais, inclusive o Troll e o Dragão Ancião.
+
+Cada inimigo aceita nome, key e apelidos (por exemplo `rato`, `dragao`,
+`spider`), sem diferenciar caixa ou acentos.
 
 Fluxo:
 
-1. `/combate inimigo:Nome` inicia a luta e já executa o turno 1.
-2. `/combate` repete o ataque com a arma armazenada; `/combate arma:Nome`
+1. `s!lutar Nome` (ou `/combate inimigo:Nome`) inicia a luta e já executa o
+   turno 1. `s!lutar Nome | Arma` inicia com uma arma específica.
+2. `s!lutar` repete o ataque com a arma armazenada; `s!lutar arma Nome`
    troca de arma sem reiniciar o combate.
 3. Armas: as mãos causam `4 + nível ÷ 2` até `+3`; ferramentas usam
    `poder_combate = 4 + tier × 2`; qualquer outro item é improvisado e causa
@@ -172,6 +226,17 @@ Fluxo:
 - `/descansar` restaura tudo imediatamente, mantém cooldown de **600 s** e
   reinicia o ciclo de 24h para não conceder recarga duplicada.
 - Custos: mineração **10**, exploração **5**, combate **4**.
+
+## Casas
+
+- Três tipos: **Tenda** (100 🪙), **Cabana** (400 🪙) e **Casa de Pedra**
+  (1.200 🪙).
+- A casa é única por jogador e persistente em `rpg_casas`.
+- Cada melhoria sobe um nível e custa `200 × nível atual` (200, 400, 600…).
+- `s!casa` mostra a casa atual ou o catálogo; `s!casa comprar <tipo>` compra
+  e `s!casa melhorar` sobe o nível. Os tipos aceitam apelidos como `pedra`,
+  `casa de pedra` e `casa_pedra`.
+- A casa é cosmética/econômica: não concede bônus de combate.
 
 ## Mercado
 
@@ -230,8 +295,10 @@ Cérbero especial.
   atributos de mineração.
 - Resultados de mineração, trabalho e exploração mostram recompensas, XP,
   progresso profissional e cooldowns.
-- `/combate` mostra catálogo, PV, dano, crítico, recompensas e energia. Sem
-  combate ativo, abre o catálogo dos cinco inimigos.
+- `s!lutar` e `/combate` mostram catálogo, PV, dano, crítico, recompensas e
+  energia. Sem combate ativo, abre o catálogo dos dez inimigos.
+- `s!casa`, `s!rankingrpg`, `s!objetivos`, `s!conquistas` e `s!ajudarpg`
+  complementam a interface sem gastar o limite de slash commands.
 - `goals.py` deriva objetivos do estado real: próximo nível, próxima
   profissão, próxima picareta e saldo faltante, região não explorada, combate
   (ativo, primeira vitória ou 10 vitórias) e conquista com maior progresso.
@@ -241,8 +308,6 @@ Cérbero especial.
 - O combate é simples: não há esquiva ativa, habilidades, classes de combate,
   loot de inimigo nem durabilidade de arma.
 - Durabilidade de ferramentas não está implementada (`durabilidade = 0`).
-- A compra de casa não tem comando próprio após a remoção de `/casa`; a
-  tabela e a leitura continuam funcionais.
+- A casa é cosmética/econômica; não concede bônus mecânicos.
 - O OpenRouter foi validado com mocks; não há chamada real comprovada sem uma
   chave válida no ambiente.
-- A casa é cosmética/econômica; não concede bônus mecânicos.

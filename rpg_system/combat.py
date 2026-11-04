@@ -32,7 +32,7 @@ CHANCE_CRITICO = 0.12
 CHANCE_ERRO_INIMIGO = 0.08
 MULTIPLICADOR_CRITICO = 1.5
 
-# Cinco inimigos iniciais. ``coins`` é sorteado apenas na vitória.
+# Inimigos do RPG Textual. ``coins`` é sorteado apenas na vitória.
 INIMIGOS: dict[str, dict[str, Any]] = {
     "goblin": {
         "key": "goblin",
@@ -48,6 +48,21 @@ INIMIGOS: dict[str, dict[str, Any]] = {
         "aliases": ["duende", "goblin"],
         "especial": False,
         "dica": "Pode ser vencido com as mãos por um aventureiro de nível 1.",
+    },
+    "rato_gigante": {
+        "key": "rato_gigante",
+        "nome": "Rato Gigante",
+        "emoji": "🐀",
+        "nivel_min": 1,
+        "pv": 25,
+        "ataque": (3, 5),
+        "xp": 18,
+        "coins": (5, 12),
+        "dificuldade": "Fácil",
+        "descricao": "Um roedor do tamanho de um cão, atraído pelo cheiro de comida.",
+        "aliases": ["rato", "rato gigante", "ratinho"],
+        "especial": False,
+        "dica": "Ainda mais fraco que o Goblin; ideal para os primeiros golpes.",
     },
     "mimico": {
         "key": "mimico",
@@ -79,6 +94,21 @@ INIMIGOS: dict[str, dict[str, Any]] = {
         "especial": False,
         "dica": "Prefira uma ferramenta; mãos nuas sofrem contra o fogo.",
     },
+    "esqueleto": {
+        "key": "esqueleto",
+        "nome": "Esqueleto",
+        "emoji": "💀",
+        "nivel_min": 4,
+        "pv": 85,
+        "ataque": (9, 14),
+        "xp": 65,
+        "coins": (18, 32),
+        "dificuldade": "Média",
+        "descricao": "Ossos antigos que se movem por vontade própria, empunhando uma espada enferrujada.",
+        "aliases": ["esqueleto", "skeleton", "caveira"],
+        "especial": False,
+        "dica": "Não sente dor, mas quebra fácil com ferramentas de ferro.",
+    },
     "orc": {
         "key": "orc",
         "nome": "Orc",
@@ -94,6 +124,21 @@ INIMIGOS: dict[str, dict[str, Any]] = {
         "especial": False,
         "dica": "Uma Picareta de Ferro ou superior já equilibra a luta.",
     },
+    "aranha_gigante": {
+        "key": "aranha_gigante",
+        "nome": "Aranha Gigante",
+        "emoji": "🕷️",
+        "nivel_min": 6,
+        "pv": 130,
+        "ataque": (11, 17),
+        "xp": 110,
+        "coins": (40, 70),
+        "dificuldade": "Difícil",
+        "descricao": "Uma aranha do tamanho de um cavalo, com fio tão forte quanto corda.",
+        "aliases": ["aranha", "aranha gigante", "spider"],
+        "especial": False,
+        "dica": "Ataca rápido; críticos e uma arma de tier médio ajudam.",
+    },
     "cerbero": {
         "key": "cerbero",
         "nome": "Cérbero",
@@ -108,6 +153,36 @@ INIMIGOS: dict[str, dict[str, Any]] = {
         "aliases": ["cerbero", "cérbero", "cao infernal", "cão infernal", "cão do inferno"],
         "especial": True,
         "dica": "Fica furioso abaixo de metade da vida. Leve uma arma forte.",
+    },
+    "troll": {
+        "key": "troll",
+        "nome": "Troll",
+        "emoji": "🧌",
+        "nivel_min": 10,
+        "pv": 220,
+        "ataque": (18, 26),
+        "xp": 220,
+        "coins": (90, 150),
+        "dificuldade": "Difícil",
+        "descricao": "Um gigante de pele grossa que regenera feridas e arranca árvores pela raiz.",
+        "aliases": ["troll", "gigante"],
+        "especial": False,
+        "dica": "Tem muita vida; espere uma luta longa e leve energia suficiente.",
+    },
+    "dragao": {
+        "key": "dragao",
+        "nome": "Dragão Ancião",
+        "emoji": "🐉",
+        "nivel_min": 15,
+        "pv": 340,
+        "ataque": (24, 34),
+        "xp": 420,
+        "coins": (250, 400),
+        "dificuldade": "Lendário",
+        "descricao": "Uma fera alada coberta de escamas negras, guardiã de um tesouro esquecido.",
+        "aliases": ["dragao", "dragão", "dragon", "dragao anciao"],
+        "especial": False,
+        "dica": "O inimigo mais forte do catálogo. Só enfrente com arma de tier alto.",
     },
 }
 

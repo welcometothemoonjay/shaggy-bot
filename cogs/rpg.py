@@ -16,6 +16,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from rpg_system import admin as rpg_admin
 from rpg_system.achievements_v2 import AchievementsV2, CATEGORIAS
 from rpg_system.activities import Activities
 from rpg_system.combat import INIMIGOS, Combate
@@ -23,7 +24,7 @@ from rpg_system.economy import Economy
 from rpg_system.energy import Energy
 from rpg_system.exploration import Exploration
 from rpg_system.goals import obter_objetivos
-from rpg_system.houses import Houses
+from rpg_system.houses import Houses, TIPOS_CASA
 from rpg_system.inventory import Inventario
 from rpg_system.items import CATALOGO_ITENS, nome_item, obter_item
 from rpg_system.marriage import Marriage
@@ -364,7 +365,7 @@ class RPG(commands.Cog):
             f"{int(res.get('custo_energia', 4))} · recarga em {_tempo(restante)}"
         )
         if estado == "ativo":
-            rodape += " · /combate ataca novamente"
+            rodape += " · s!lutar ou /combate ataca novamente"
         embed.set_footer(text=rodape)
         return embed
 
@@ -373,9 +374,10 @@ class RPG(commands.Cog):
         embed = discord.Embed(
             title="⚔️ Inimigos de Dakor",
             description=(
-                "Comece com `/combate inimigo:Nome`. O primeiro ataque já acontece "
-                "no turno 1. Depois, use `/combate` para repetir com a mesma arma ou "
-                "`/combate arma:Nome` para trocar."
+                "Comece com `s!lutar Nome` ou `/combate inimigo:Nome`. O primeiro "
+                "ataque já acontece no turno 1. Depois use `s!lutar` para repetir "
+                "com a mesma arma, `s!lutar arma Nome` para trocar de arma ou "
+                "`s!lutar Inimigo | Arma` para iniciar com uma arma específica."
             ),
             color=discord.Color.dark_red(),
         )
@@ -1167,6 +1169,738 @@ class RPG(commands.Cog):
             )
             return
         await interaction.response.send_message(f"💌 Proposta enviada para {alvo.mention}!")
+
+    # =====================================================================
+    # Prefixo (s!) — novos recursos sem gastar o limite de 100 slash commands
+    # =====================================================================
+    async def _autorizado_rpg(self, ctx: commands.Context) -> bool:
+        try:
+            if await self.bot.is_owner(ctx.author):
+                return True
+        except Exception:
+            pass
+        if ctx.guild is None:
+            return False
+        if ctx.author.id == ctx.guild.owner_id:
+            return True
+        perms = getattr(ctx.author, "guild_permissions", None)
+        return bool(perms and (
+            perms.administrator or perms.manage_guild or perms.moderate_members
+        ))
+
+    async def _negar_admin(self, ctx: commands.Context) -> None:
+        await ctx.reply(
+            "❌ Apenas o dono do bot, administradores ou moderadores "
+            "(Gerenciar Servidor / Moderar Membros) podem usar este comando."
+        )
+
+    @staticmethod
+    def _sufixo_opcoes(res: dict[str, Any]) -> str:
+        opcoes = res.get("opcoes") or []
+        return ("\nOpções: " + ", ".join(opcoes[:10])) if opcoes else ""
+
+    async def _resposta_admin(self, ctx: commands.Context, titulo: str,
+                              res: dict[str, Any], alvo: discord.Member,
+                              detalhe: str) -> None:
+        if not res.get("sucesso"):
+            await ctx.reply(
+                f"❌ {res.get('motivo', 'Falha na operação.')}"
+                f"{self._sufixo_opcoes(res)}"
+            )
+            return
+        embed = discord.Embed(
+            title=titulo,
+            description=detalhe,
+            color=discord.Color.dark_purple(),
+        )
+        embed.add_field(name="Jogador", value=alvo.mention, inline=True)
+        embed.add_field(name="Moderador", value=ctx.author.mention, inline=True)
+        embed.set_footer(text=f"ID do jogador: {alvo.id}")
+        await ctx.reply(embed=embed)
+
+    # ---------------- jogadores ----------------
+    @commands.command(name="rpg", aliases=("ficha",))
+    @commands.guild_only()
+    async def rpg_prefix(self, ctx: commands.Context):
+        ctxd = self._get_ctx(ctx.guild.id, ctx.author.id)
+        char = ctxd["progression"].obter_personagem()
+        criado = False
+        if not char:
+            ok = ctxd["progression"].criar_personagem(
+                ctx.author.display_name or ctx.author.name
+            )
+            char = ctxd["progression"].obter_personagem()
+            if not char:
+                await ctx.reply("❌ Não foi possível criar o personagem. Tente novamente.")
+                return
+            criado = ok
+        picareta = ctxd["market"].garantir_picareta_inicial()
+        novas = self._novas_conquistas(ctxd)
+        embed = criar_embed_personagem(char, self._extras(ctxd, char))
+        if criado:
+            embed.description = (
+                "Sua jornada começa em Dakor. Uma Picareta de Madeira foi entregue."
+            )
+        if picareta:
+            p = PICARETAS[picareta]
+            embed.add_field(
+                name="Picareta inicial",
+                value=(
+                    f"⛏️ **{p.nome}** equipada — "
+                    f"{int(p.chance_coins * 100)}% de chance de Abysmus por mineração."
+                ),
+                inline=False,
+            )
+        self._campo_conquistas(embed, novas)
+        await ctx.reply(embed=embed)
+
+    @commands.command(name="mochila")
+    @commands.guild_only()
+    async def mochila_prefix(self, ctx: commands.Context):
+        ctxd = self._get_ctx(ctx.guild.id, ctx.author.id)
+        inv = ctxd["inventory"].obter()
+        if not inv:
+            await ctx.reply("🎒 Sua mochila está vazia.")
+            return
+        embed = discord.Embed(title="🎒 Mochila", color=discord.Color.dark_green())
+        categorias: dict[str, list[str]] = {}
+        total = 0
+        for key, qtd in sorted(inv.items(), key=lambda item: nome_item(item[0])):
+            item = obter_item(key)
+            categoria = item.categoria if item else "outro"
+            categorias.setdefault(categoria, []).append(f"{nome_item(key)} ×{qtd}")
+            total += qtd
+        for categoria, linhas in categorias.items():
+            embed.add_field(
+                name=categoria.title(),
+                value="\n".join(linhas)[:1024],
+                inline=False,
+            )
+        equipada = ctxd["market"].picareta_em_uso()
+        if equipada:
+            p = equipada["ferramenta"]
+            embed.add_field(
+                name="Picareta em uso",
+                value=(
+                    f"⛏️ **{p.nome}** ({equipada['origem']})\n"
+                    f"Eficiência {p.eficiencia}x · "
+                    f"{int(p.chance_coins * 100)}% de Abysmus"
+                ),
+                inline=False,
+            )
+        embed.set_footer(
+            text=f"{len(inv)} tipo(s) · {total} item(ns) · use s!lutar para combater"
+        )
+        await ctx.reply(embed=embed)
+
+    @commands.command(name="minerar", aliases=("mineracao",))
+    @commands.guild_only()
+    async def minerar_prefix(self, ctx: commands.Context, *, regiao: str | None = None):
+        ctxd = self._get_ctx(ctx.guild.id, ctx.author.id)
+        res = ctxd["mining"].minerar(regiao)
+        if not res.get("sucesso"):
+            motivo = res.get("motivo", "Falha na mineração.")
+            if res.get("restante"):
+                motivo += f" Aguarde {_tempo(res['restante'])}."
+            await ctx.reply(f"❌ {motivo}")
+            return
+        novas = self._novas_conquistas(ctxd)
+        embed = discord.Embed(
+            title=f"⛏️ Mineração — {res['regiao_nome']}",
+            color=discord.Color.dark_gray(),
+        )
+        embed.add_field(
+            name="Picareta",
+            value=(
+                f"**{res['picareta_nome']}** (tier {res['picareta_nivel']}, "
+                f"{res['origem_picareta']})\n"
+                f"Chance de Abysmus: {int(res['chance_coins'] * 100)}%"
+            ),
+            inline=False,
+        )
+        embed.add_field(name="Materiais", value=_linhas_itens(res["itens"]), inline=True)
+        moedas = f"🪙 +{res['coins']:,}" if res["coins"] else "Nenhum desta vez"
+        embed.add_field(name="Abysmus", value=moedas, inline=True)
+        xp = res.get("xp_personagem") or {}
+        xp_txt = f"+{xp.get('xp_ganho', 0)} XP (total {xp.get('xp_total', 0):,})"
+        if xp.get("subiu_nivel"):
+            xp_txt += f"\n🌟 Subiu para o nível {xp.get('nivel_novo')}!"
+        embed.add_field(name="Personagem", value=xp_txt, inline=False)
+        self._campo_conquistas(embed, novas)
+        embed.set_footer(
+            text=f"Saldo: {res.get('saldo', 0):,} Abysmus · "
+                 f"próximo uso em {_tempo(res.get('cooldown', 0))}"
+        )
+        await ctx.reply(embed=embed)
+
+    @commands.command(name="trabalhar")
+    @commands.guild_only()
+    async def trabalhar_prefix(self, ctx: commands.Context, *, profissao: str | None = None):
+        ctxd = self._get_ctx(ctx.guild.id, ctx.author.id)
+        res = ctxd["professions"].trabalhar(profissao)
+        if not res.get("sucesso"):
+            motivo = res.get("motivo", "Falha ao trabalhar.")
+            if res.get("restante"):
+                motivo += f" Aguarde {_tempo(res['restante'])}."
+            await ctx.reply(f"❌ {motivo}")
+            return
+        novas = self._novas_conquistas(ctxd)
+        embed = discord.Embed(
+            title=f"💼 {res['nome']} — atividade concluída",
+            color=discord.Color.orange(),
+        )
+        embed.add_field(name="Itens", value=_linhas_itens(res.get("itens", {})), inline=True)
+        embed.add_field(
+            name="Abysmus",
+            value=f"🪙 +{res.get('coins', 0):,}" if res.get("coins") else "Sem comissão desta vez",
+            inline=True,
+        )
+        progresso = (
+            f"+{res['xp_ganho']} XP profissional\n"
+            f"Nível {res['nivel']} · {res.get('xp', 0):,}/{res.get('xp_necessario', 0):,}"
+        )
+        if res.get("subiu"):
+            progresso += f"\n🌟 Subiu do nível {res['nivel_antes']} para {res['nivel']}!"
+        embed.add_field(name="Profissão", value=progresso, inline=False)
+        self._campo_conquistas(embed, novas)
+        embed.set_footer(
+            text=f"Saldo: {res.get('saldo', 0):,} · "
+                 f"próxima atividade em {_tempo(res.get('cooldown', 0))}"
+        )
+        await ctx.reply(embed=embed)
+
+    @commands.command(name="explorar")
+    @commands.guild_only()
+    async def explorar_prefix(self, ctx: commands.Context, *, regiao: str | None = None):
+        ctxd = self._get_ctx(ctx.guild.id, ctx.author.id)
+        res = await ctxd["exploration"].explorar(regiao)
+        if not res.get("sucesso"):
+            motivo = res.get("motivo", "Falha na exploração.")
+            if res.get("restante"):
+                motivo += f" Aguarde {_tempo(res['restante'])}."
+            await ctx.reply(f"❌ {motivo}")
+            return
+        novas = self._novas_conquistas(ctxd)
+        embed = discord.Embed(
+            title=f"🗺️ {res['local']}",
+            description=res.get("descricao", "")[:4000],
+            color=discord.Color.blue(),
+        )
+        embed.add_field(name="Região", value=res["regiao"], inline=True)
+        recompensas = []
+        if res.get("moedas"):
+            recompensas.append(f"🪙 +{res['moedas']:,} Abysmus")
+        if res.get("item"):
+            recompensas.append(f"📦 {res.get('item_qtd', 1)}× {res.get('item_nome')}")
+        recompensas.append(f"✨ +{res['xp']} XP")
+        embed.add_field(name="Recompensas", value="\n".join(recompensas), inline=False)
+        if res.get("descoberta_nova"):
+            embed.add_field(name="Descoberta", value="📍 Novo local descoberto!", inline=False)
+        self._campo_conquistas(embed, novas)
+        embed.set_footer(
+            text=f"Saldo {res.get('saldo', 0):,} · próxima exploração em "
+                 f"{_tempo(res.get('cooldown', 0))}"
+        )
+        await ctx.reply(embed=embed)
+
+    @commands.command(name="descansar")
+    @commands.guild_only()
+    async def descansar_prefix(self, ctx: commands.Context):
+        ctxd = self._get_ctx(ctx.guild.id, ctx.author.id)
+        res = ctxd["activities"].descansar()
+        if not res.get("sucesso"):
+            await ctx.reply(f"❌ {res.get('motivo', 'Falha ao descansar.')}")
+            return
+        energia = ctxd["energy"].obter_detalhado()
+        embed = discord.Embed(
+            title="😴 Descanso concluído",
+            description=(
+                f"Energia restaurada: ⚡ {energia['valor']}/{energia['max']}.\n"
+                "O ciclo de recarga automática de 24h foi reiniciado."
+            ),
+            color=discord.Color.green(),
+        )
+        casa = ctxd["houses"].obter_casa()
+        if casa:
+            embed.set_footer(
+                text=f"Você descansou em sua {casa['nome']} (nível {casa['nivel']})."
+            )
+        else:
+            embed.set_footer(text="Você descansou ao relento. Compre uma casa com s!casa.")
+        await ctx.reply(embed=embed)
+
+    @commands.command(name="lutar", aliases=("combate", "batalha"))
+    @commands.guild_only()
+    async def lutar_prefix(self, ctx: commands.Context, *, argumentos: str = ""):
+        ctxd = self._get_ctx(ctx.guild.id, ctx.author.id)
+        texto = (argumentos or "").strip()
+        baixo = texto.casefold()
+
+        if not texto:
+            status = ctxd["combat"].status()
+            if status.get("estado") == "ativo":
+                res = ctxd["combat"].atacar()
+            else:
+                await ctx.reply(embed=self._embed_catalogo_combate(status.get("catalogo", [])))
+                return
+        elif baixo.startswith("arma "):
+            res = ctxd["combat"].atacar(texto[5:].strip())
+        elif "|" in texto:
+            inimigo, arma = [parte.strip() for parte in texto.split("|", 1)]
+            res = ctxd["combat"].iniciar(inimigo, arma or None)
+        else:
+            res = ctxd["combat"].iniciar(texto)
+
+        if not res.get("sucesso"):
+            motivo = res.get("motivo", "Não foi possível continuar o combate.")
+            if res.get("opcoes"):
+                motivo += "\nOpções: " + ", ".join(res["opcoes"][:8])
+            await ctx.reply(f"❌ {motivo}")
+            return
+        novas = self._novas_conquistas(ctxd)
+        energia = ctxd["energy"].obter_detalhado()
+        embed = self._embed_combate(res, energia)
+        self._campo_conquistas(embed, novas)
+        await ctx.reply(embed=embed)
+
+    @commands.command(name="casa")
+    @commands.guild_only()
+    async def casa_prefix(self, ctx: commands.Context, *, argumentos: str = ""):
+        ctxd = self._get_ctx(ctx.guild.id, ctx.author.id)
+        casa = ctxd["houses"].obter_casa()
+        partes = (argumentos or "").strip().split()
+        acao = partes[0].casefold() if partes else ""
+
+        if acao in ("", "ver", "info"):
+            embed = discord.Embed(
+                title="🏠 Sua casa",
+                color=discord.Color.dark_teal(),
+            )
+            if casa:
+                embed.description = (
+                    f"**{casa['nome']}** — nível {casa['nivel']}\n"
+                    f"{casa.get('descricao', '')}"
+                )
+                embed.add_field(
+                    name="Melhorar",
+                    value=f"Use `s!casa melhorar` (custo {200 * max(1, casa['nivel']):,} 🪙).",
+                    inline=False,
+                )
+            else:
+                embed.description = (
+                    "Você ainda não tem uma casa. Compre uma para descansar melhor "
+                    "e registrar sua progressão."
+                )
+                for chave, info in TIPOS_CASA.items():
+                    embed.add_field(
+                        name=f"{info['nome']} — {info['preco']:,} 🪙",
+                        value=f"{info['descricao']}\n`s!casa comprar {chave}`",
+                        inline=False,
+                    )
+            await ctx.reply(embed=embed)
+            return
+
+        if acao in ("comprar", "construir", "buy"):
+            tipo = " ".join(partes[1:]) or "tenda"
+            res = ctxd["houses"].comprar_casa(tipo)
+        elif acao in ("melhorar", "upgrade", "evoluir", "up"):
+            res = ctxd["houses"].melhorar_casa()
+        else:
+            res = ctxd["houses"].comprar_casa(argumentos.strip())
+
+        if not res.get("sucesso"):
+            await ctx.reply(
+                f"❌ {res.get('motivo', 'Falha na casa.')}"
+                f"{self._sufixo_opcoes(res)}"
+            )
+            return
+
+        if res.get("nivel"):
+            embed = discord.Embed(
+                title="🏠 Casa melhorada",
+                description=f"Sua casa agora está no nível **{res['nivel']}**.",
+                color=discord.Color.green(),
+            )
+            embed.set_footer(text=f"Custo: {res.get('preco', 0):,} 🪙")
+        else:
+            embed = discord.Embed(
+                title=f"🏠 {res['nome']} comprada",
+                description="Sua casa foi registrada com sucesso.",
+                color=discord.Color.green(),
+            )
+            embed.set_footer(text=f"Custo: {res.get('preco', 0):,} 🪙")
+        await ctx.reply(embed=embed)
+
+    @commands.command(name="objetivos")
+    @commands.guild_only()
+    async def objetivos_prefix(self, ctx: commands.Context):
+        objetivos = obter_objetivos(ctx.guild.id, ctx.author.id)
+        if not objetivos:
+            await ctx.reply("Você ainda não tem objetivos. Use `s!rpg` para começar.")
+            return
+        embed = discord.Embed(
+            title="🎯 Próximos objetivos",
+            color=discord.Color.gold(),
+        )
+        for obj in objetivos[:6]:
+            progresso = ""
+            if obj.get("meta"):
+                progresso = f"\n{_barra(obj.get('progresso', 0), obj['meta'])} "
+                progresso += f"{obj.get('progresso', 0)}/{obj['meta']}"
+            embed.add_field(
+                name=f"{obj['titulo']} · {obj.get('comando', '')}".strip(),
+                value=f"{obj['descricao']}{progresso}",
+                inline=False,
+            )
+        await ctx.reply(embed=embed)
+
+    @commands.command(name="rankingrpg", aliases=("rpgrank", "toprpg"))
+    @commands.guild_only()
+    async def rankingrpg_prefix(self, ctx: commands.Context):
+        ranking = rpg_admin.ranking(ctx.guild.id, 10)
+        if not ranking:
+            await ctx.reply("Nenhum personagem registrado neste servidor ainda.")
+            return
+        embed = discord.Embed(
+            title="🏆 Ranking do RPG",
+            description="Top 10 por XP de personagem.",
+            color=discord.Color.gold(),
+        )
+        linhas = []
+        for posicao, linha in enumerate(ranking, start=1):
+            linhas.append(
+                f"**{posicao}.** <@{linha['user_id']}> — nível {linha['nivel']} "
+                f"· {linha['xp']:,} XP"
+            )
+        embed.description += "\n\n" + "\n".join(linhas)
+        await ctx.reply(embed=embed)
+
+    @commands.command(name="conquistas", aliases=("conquistasrpg",))
+    @commands.guild_only()
+    async def conquistas_prefix(self, ctx: commands.Context, *, categoria: str = "todas"):
+        ctxd = self._get_ctx(ctx.guild.id, ctx.author.id)
+        self._novas_conquistas(ctxd)
+        cat = (categoria or "todas").casefold()
+        lista = ctxd["achievements"].obter_todas(None if cat == "todas" else cat)
+        resumo = ctxd["achievements"].resumo() if cat != "todas" else None
+        embed = criar_embed_conquistas(lista, resumo, None if cat == "todas" else cat)
+        await ctx.reply(embed=embed)
+
+    @commands.command(name="ajudarpg", aliases=("rphelp",))
+    @commands.guild_only()
+    async def ajudarpg_prefix(self, ctx: commands.Context):
+        embed = discord.Embed(
+            title="🧭 RPG Textual — comandos de prefixo",
+            description=(
+                "Os comandos novos usam o prefixo `s!` para não ocupar o limite "
+                "de 100 slash commands do Discord. Os comandos `/` continuam "
+                "funcionando."
+            ),
+            color=discord.Color.dark_gold(),
+        )
+        embed.add_field(
+            name="Jogador",
+            value=(
+                "`s!rpg` — cria/abre a ficha\n"
+                "`s!mochila` — inventário\n"
+                "`s!minerar [região]` — mineração\n"
+                "`s!trabalhar [profissão]` — profissão\n"
+                "`s!explorar [região]` — exploração\n"
+                "`s!descansar` — restaura energia\n"
+                "`s!lutar [inimigo]` — combate; use `s!lutar` para atacar de novo\n"
+                "`s!lutar arma <item>` — troca de arma no combate\n"
+                "`s!lutar <inimigo> | <arma>` — inicia com arma escolhida\n"
+                "`s!casa` — vê, compra (`s!casa comprar cabana`) ou melhora\n"
+                "`s!objetivos` — próximos objetivos\n"
+                "`s!rankingrpg` — top 10 do servidor\n"
+                "`s!conquistas [categoria]` — conquistas"
+            ),
+            inline=False,
+        )
+        embed.add_field(
+            name="Moderação / desenvolvedor",
+            value=(
+                "`s!rpggive @membro <moedas|xp|energia> <valor>`\n"
+                "`s!rpgtake @membro <moedas|xp|energia> <valor>`\n"
+                "`s!rpgset @membro <moedas|xp|energia> <valor>`\n"
+                "`s!rpgitem @membro <quantidade> <nome do item>`\n"
+                "`s!rpgitemremover @membro <quantidade> <nome do item>`\n"
+                "`s!rpgficha [@membro]` — inspeciona o RPG do jogador\n"
+                "`s!rpglimparcombate @membro` — encerra um combate travado\n"
+                "`s!rpgreset @membro confirmar` — apaga só o progresso do RPG"
+            ),
+            inline=False,
+        )
+        embed.set_footer(
+            text="Moderação: dono do bot, administrador, Gerenciar Servidor "
+                 "ou Moderar Membros."
+        )
+        await ctx.reply(embed=embed)
+
+    # ---------------- moderação / desenvolvedor ----------------
+    @commands.command(name="rpggive")
+    @commands.guild_only()
+    async def rpggive_prefix(self, ctx: commands.Context, membro: discord.Member,
+                             campo: str, valor: str):
+        if not await self._autorizado_rpg(ctx):
+            await self._negar_admin(ctx)
+            return
+        try:
+            quantidade = int(valor)
+        except ValueError:
+            await ctx.reply("❌ O valor precisa ser um número inteiro.")
+            return
+        if quantidade <= 0:
+            await ctx.reply("❌ Use um valor positivo. Para remover, use `s!rpgtake`.")
+            return
+        chave = campo.casefold()
+        if chave in ("moedas", "coins", "abysmus", "saldo"):
+            res = rpg_admin.ajustar_moedas(
+                ctx.guild.id, membro.id, quantidade, ctx.author.id
+            )
+            detalhe = f"🪙 +{quantidade:,} Abysmus. Novo saldo: **{res.get('saldo', 0):,}**."
+        elif chave in ("xp", "exp", "experiencia"):
+            res = rpg_admin.ajustar_xp(
+                ctx.guild.id, membro.id, quantidade, ctx.author.id
+            )
+            detalhe = (
+                f"✨ +{quantidade:,} XP. Total: **{res.get('xp_total', 0):,}** "
+                f"(nível {res.get('nivel', 0)})."
+            )
+        elif chave in ("energia", "energy"):
+            res = rpg_admin.ajustar_energia(
+                ctx.guild.id, membro.id, quantidade, ctx.author.id
+            )
+            detalhe = (
+                f"⚡ +{quantidade} energia. Agora: "
+                f"**{res.get('energia', 0)}/{res.get('energia_max', 100)}**."
+            )
+        else:
+            await ctx.reply(
+                "❌ Campo inválido. Use `moedas`, `xp` ou `energia`. "
+                "Para itens, use `s!rpgitem`."
+            )
+            return
+        await self._resposta_admin(ctx, "🛠️ RPG — concessão", res, membro, detalhe)
+
+    @commands.command(name="rpgtake")
+    @commands.guild_only()
+    async def rpgtake_prefix(self, ctx: commands.Context, membro: discord.Member,
+                             campo: str, valor: str):
+        if not await self._autorizado_rpg(ctx):
+            await self._negar_admin(ctx)
+            return
+        try:
+            quantidade = int(valor)
+        except ValueError:
+            await ctx.reply("❌ O valor precisa ser um número inteiro.")
+            return
+        if quantidade <= 0:
+            await ctx.reply("❌ Use um valor positivo. Para conceder, use `s!rpggive`.")
+            return
+        chave = campo.casefold()
+        if chave in ("moedas", "coins", "abysmus", "saldo"):
+            res = rpg_admin.ajustar_moedas(
+                ctx.guild.id, membro.id, -quantidade, ctx.author.id
+            )
+            detalhe = (
+                f"🪙 −{quantidade:,} Abysmus. Novo saldo: "
+                f"**{res.get('saldo', 0):,}**."
+            )
+        elif chave in ("xp", "exp", "experiencia"):
+            res = rpg_admin.ajustar_xp(
+                ctx.guild.id, membro.id, -quantidade, ctx.author.id
+            )
+            detalhe = (
+                f"✨ −{quantidade:,} XP. Total: **{res.get('xp_total', 0):,}** "
+                f"(nível {res.get('nivel', 0)})."
+            )
+        elif chave in ("energia", "energy"):
+            res = rpg_admin.ajustar_energia(
+                ctx.guild.id, membro.id, -quantidade, ctx.author.id
+            )
+            detalhe = (
+                f"⚡ −{quantidade} energia. Agora: "
+                f"**{res.get('energia', 0)}/{res.get('energia_max', 100)}**."
+            )
+        else:
+            await ctx.reply("❌ Campo inválido. Use `moedas`, `xp` ou `energia`.")
+            return
+        await self._resposta_admin(ctx, "🛠️ RPG — remoção", res, membro, detalhe)
+
+    @commands.command(name="rpgset")
+    @commands.guild_only()
+    async def rpgset_prefix(self, ctx: commands.Context, membro: discord.Member,
+                            campo: str, valor: str):
+        if not await self._autorizado_rpg(ctx):
+            await self._negar_admin(ctx)
+            return
+        try:
+            numero = int(valor)
+        except ValueError:
+            await ctx.reply("❌ O valor precisa ser um número inteiro.")
+            return
+        if numero < 0:
+            await ctx.reply("❌ O valor não pode ser negativo.")
+            return
+        chave = campo.casefold()
+        if chave in ("moedas", "coins", "abysmus", "saldo"):
+            res = rpg_admin.definir_moedas(
+                ctx.guild.id, membro.id, numero, ctx.author.id
+            )
+            detalhe = f"🪙 Saldo definido para **{res.get('saldo', 0):,}**."
+        elif chave in ("xp", "exp", "experiencia"):
+            res = rpg_admin.definir_xp(
+                ctx.guild.id, membro.id, numero, ctx.author.id
+            )
+            detalhe = (
+                f"✨ XP definido para **{res.get('xp_total', 0):,}** "
+                f"(nível {res.get('nivel', 0)})."
+            )
+        elif chave in ("energia", "energy"):
+            res = rpg_admin.definir_energia(
+                ctx.guild.id, membro.id, numero, ctx.author.id
+            )
+            detalhe = (
+                f"⚡ Energia definida para "
+                f"**{res.get('energia', 0)}/{res.get('energia_max', 100)}**."
+            )
+        else:
+            await ctx.reply("❌ Campo inválido. Use `moedas`, `xp` ou `energia`.")
+            return
+        await self._resposta_admin(ctx, "🛠️ RPG — definição", res, membro, detalhe)
+
+    @commands.command(name="rpgitem")
+    @commands.guild_only()
+    async def rpgitem_prefix(self, ctx: commands.Context, membro: discord.Member,
+                             quantidade: str, *, nome: str):
+        if not await self._autorizado_rpg(ctx):
+            await self._negar_admin(ctx)
+            return
+        try:
+            qtd = int(quantidade)
+        except ValueError:
+            await ctx.reply("❌ A quantidade precisa ser um número inteiro.")
+            return
+        if qtd <= 0:
+            await ctx.reply("❌ A quantidade precisa ser positiva.")
+            return
+        res = rpg_admin.dar_item(
+            ctx.guild.id, membro.id, nome, qtd, ctx.author.id
+        )
+        detalhe = (
+            f"📦 +{qtd}× **{res.get('nome', nome)}** entregue(s) na mochila."
+        )
+        await self._resposta_admin(ctx, "🛠️ RPG — item concedido", res, membro, detalhe)
+
+    @commands.command(name="rpgitemremover")
+    @commands.guild_only()
+    async def rpgitemremover_prefix(self, ctx: commands.Context, membro: discord.Member,
+                                    quantidade: str, *, nome: str):
+        if not await self._autorizado_rpg(ctx):
+            await self._negar_admin(ctx)
+            return
+        try:
+            qtd = int(quantidade)
+        except ValueError:
+            await ctx.reply("❌ A quantidade precisa ser um número inteiro.")
+            return
+        if qtd <= 0:
+            await ctx.reply("❌ A quantidade precisa ser positiva.")
+            return
+        res = rpg_admin.remover_item(
+            ctx.guild.id, membro.id, nome, qtd, ctx.author.id
+        )
+        detalhe = (
+            f"📦 −{qtd}× **{res.get('nome', nome)}** removido(s) da mochila."
+        )
+        await self._resposta_admin(ctx, "🛠️ RPG — item removido", res, membro, detalhe)
+
+    @commands.command(name="rpgficha")
+    @commands.guild_only()
+    async def rpgficha_prefix(self, ctx: commands.Context,
+                              membro: discord.Member | None = None):
+        if not await self._autorizado_rpg(ctx):
+            await self._negar_admin(ctx)
+            return
+        alvo = membro or ctx.author
+        dados = rpg_admin.resumo(ctx.guild.id, alvo.id)
+        embed = discord.Embed(
+            title=f"🔍 RPG — {alvo.display_name}",
+            color=discord.Color.dark_purple(),
+        )
+        char = dados.get("personagem")
+        if char:
+            embed.add_field(
+                name="Personagem",
+                value=(
+                    f"**{char['nome']}** · nível {char['nivel']} · "
+                    f"{char['xp']:,} XP\nRegião: {char['regiao']}"
+                ),
+                inline=False,
+            )
+        else:
+            embed.add_field(name="Personagem", value="Sem personagem.", inline=False)
+        embed.add_field(name="Saldo", value=f"🪙 {dados['saldo']:,}", inline=True)
+        embed.add_field(
+            name="Energia",
+            value=f"⚡ {dados['energia']}/{dados['energia_max']}",
+            inline=True,
+        )
+        embed.add_field(name="Itens", value=str(dados["itens"]), inline=True)
+        embed.add_field(
+            name="Combate",
+            value=(
+                f"⚔️ {dados['vitorias']} vitórias · 💀 {dados['derrotas']} derrotas\n"
+                f"Ativo: {dados['combate'] or 'não'}"
+            ),
+            inline=False,
+        )
+        embed.add_field(
+            name="Progresso",
+            value=(
+                f"🏆 {dados['conquistas']} conquistas · "
+                f"💼 {dados['profissoes']} profissões · "
+                f"🏠 {dados['casa'] or 'sem casa'}"
+            ),
+            inline=False,
+        )
+        embed.set_footer(text=f"ID do jogador: {alvo.id}")
+        await ctx.reply(embed=embed)
+
+    @commands.command(name="rpglimparcombate")
+    @commands.guild_only()
+    async def rpglimparcombate_prefix(self, ctx: commands.Context,
+                                      membro: discord.Member):
+        if not await self._autorizado_rpg(ctx):
+            await self._negar_admin(ctx)
+            return
+        res = rpg_admin.limpar_combate(ctx.guild.id, membro.id, ctx.author.id)
+        detalhe = f"⚔️ Combate contra **{res.get('inimigo', '?')}** encerrado."
+        await self._resposta_admin(
+            ctx, "🛠️ RPG — combate encerrado", res, membro, detalhe
+        )
+
+    @commands.command(name="rpgreset")
+    @commands.guild_only()
+    async def rpgreset_prefix(self, ctx: commands.Context, membro: discord.Member,
+                              confirmacao: str = ""):
+        if not await self._autorizado_rpg(ctx):
+            await self._negar_admin(ctx)
+            return
+        if confirmacao.casefold() != "confirmar":
+            await ctx.reply(
+                f"⚠️ Para resetar o progresso de {membro.mention}, use "
+                f"`s!rpgreset @{membro.name} confirmar`.\n"
+                "O inventário e o saldo **não** serão apagados."
+            )
+            return
+        res = rpg_admin.resetar_personagem(ctx.guild.id, membro.id, ctx.author.id)
+        detalhe = (
+            "🧹 Personagem, profissões, combate, casa, conquistas e energia "
+            "foram apagados. Inventário e saldo foram preservados."
+        )
+        await self._resposta_admin(ctx, "🛠️ RPG — reset", res, membro, detalhe)
 
 
 async def setup(bot: commands.Bot):

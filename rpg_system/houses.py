@@ -8,6 +8,7 @@ o que fazia a casa "desaparecer" no dia seguinte.
 from __future__ import annotations
 
 import time
+import unicodedata
 
 from .database import get_db
 from .economy import obter_saldo_tx, alterar_saldo_tx
@@ -18,6 +19,24 @@ TIPOS_CASA = {
     "cabana": {"nome": "Cabana", "preco": 400, "descricao": "Uma cabana de madeira com espaço para guardar mantimentos."},
     "casa_pedra": {"nome": "Casa de Pedra", "preco": 1200, "descricao": "Uma construção sólida, feita para durar invernos rigorosos."},
 }
+
+ALIASES_CASA = {
+    "tenda": "tenda",
+    "cabana": "cabana",
+    "casa de pedra": "casa_pedra",
+    "pedra": "casa_pedra",
+    "casa pedra": "casa_pedra",
+}
+
+
+def resolver_tipo_casa(tipo: str) -> str | None:
+    """Aceita key, nome ou apelido sem diferenciar caixa/acentos."""
+    texto = unicodedata.normalize("NFKD", str(tipo or ""))
+    texto = "".join(c for c in texto if not unicodedata.combining(c))
+    chave = " ".join(texto.casefold().replace("_", " ").replace("-", " ").split())
+    if chave in TIPOS_CASA:
+        return chave
+    return ALIASES_CASA.get(chave)
 
 
 class Houses:
@@ -44,9 +63,17 @@ class Houses:
         return dados
 
     def comprar_casa(self, tipo: str = "tenda", preco: int | None = None) -> dict:
-        info = TIPOS_CASA.get(tipo)
+        chave = resolver_tipo_casa(tipo)
+        info = TIPOS_CASA.get(chave) if chave else None
         if not info:
-            return {"sucesso": False, "motivo": "Tipo de casa inválido."}
+            return {
+                "sucesso": False,
+                "motivo": (
+                    "Tipo de casa inválido. Use tenda, cabana ou casa de pedra."
+                ),
+                "opcoes": list(TIPOS_CASA),
+            }
+        tipo = chave
         custo = int(preco if preco is not None else info["preco"])
         try:
             with self.db.transacao() as db:
@@ -78,7 +105,7 @@ class Houses:
         except Exception as exc:
             return {"sucesso": False, "motivo": f"Compra cancelada: {exc}"}
 
-    def melhorar_casa(self, preco: int = 200) -> dict:
+    def melhorar_casa(self, preco: int | None = None) -> dict:
         try:
             with self.db.transacao() as db:
                 row = db.execute(
@@ -87,6 +114,9 @@ class Houses:
                 ).fetchone()
                 if not row:
                     return {"sucesso": False, "motivo": "Você não possui uma casa."}
+                if preco is None:
+                    preco = 200 * max(1, int(row[1]))
+                preco = int(preco)
                 saldo = obter_saldo_tx(db, self.guild_id, self.user_id)
                 if saldo < preco:
                     return {

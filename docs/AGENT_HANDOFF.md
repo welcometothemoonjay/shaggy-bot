@@ -9,11 +9,14 @@ O Ruptura Temporal não foi modificado.
   `backups/shaggy.db.bak.20261103_143906`.
 - Testes usam `SHAGGY_DB_PATH` temporário e mocks; nenhum jogador real foi
   afetado.
-- Todos os cogs carregam: **100 comandos slash**, **0 duplicados**, **0 falhas**.
-- Suíte nova: **49 testes, todos passando** com
+- Todos os cogs carregam: **19 cogs**, **100 comandos slash**, **0
+  duplicados**, **0 falhas**.
+- Suíte nova: **61 testes, todos passando** com
   `.venv/bin/python -m unittest discover -s tests -v`.
-- `py_compile` passa em `rpg_system/*.py`, `rpg_system/ai/*.py` e
-  `cogs/rpg.py`.
+- `py_compile` passa em `rpg_system/*.py`, `rpg_system/ai/*.py`,
+  `cogs/rpg.py`, `cogs/ultility.py` e `tests/test_rpg_evolution.py`.
+- Novos recursos são comandos de prefixo `s!`, fora do limite de 100 slash
+  commands.
 
 ## O que mudou
 
@@ -27,9 +30,13 @@ O Ruptura Temporal não foi modificado.
   transacionais `*_tx`; fim das transações aninhadas.
 - `rpg_system/energy.py`: energia persistente em `rpg_flags`, recarga
   automática de 100% a cada 24h e migração do legado.
-- `rpg_system/houses.py`: casa em `rpg_casas`, uma por jogador.
-- `rpg_system/combat.py`: 5 inimigos, turnos persistentes em `rpg_combates`,
-  ataque com mãos/itens, XP por golpe, vitória/derrota e conquistas.
+- `rpg_system/houses.py`: casa em `rpg_casas`, uma por jogador, apelidos de
+  tipo e melhoria com custo `200 × nível`.
+- `rpg_system/combat.py`: **10 inimigos**, turnos persistentes em
+  `rpg_combates`, ataque com mãos/itens, XP por golpe, vitória/derrota e
+  conquistas.
+- `rpg_system/admin.py`: inspeção/ranking e alterações atômicas de moedas, XP,
+  energia, itens, combate e reset seletivo para moderação.
 
 ### Conteúdo e sistemas
 
@@ -54,8 +61,15 @@ O Ruptura Temporal não foi modificado.
 - `rpg_system/ai/narrative.py`: OpenRouter com cache persistente, timeout,
   `max_tokens`, backoff para 429/5xx, validação de resposta e fallback.
 - `rpg_system/views.py` e `goals.py`: ficha, conquistas e próximos objetivos.
-- `cogs/rpg.py`: 19 comandos, autocomplete, embeds ricos, `/equipar` e
-  `/combate`; `/casa` removido para respeitar o limite de comandos.
+- `cogs/rpg.py`: 19 slash commands, autocomplete e embeds ricos; `/equipar` e
+  `/combate`. Foram adicionados comandos de prefixo para jogador (`s!rpg`,
+  `s!mochila`, `s!minerar`, `s!trabalhar`, `s!explorar`, `s!descansar`,
+  `s!lutar`, `s!casa`, `s!objetivos`, `s!rankingrpg`, `s!conquistas`,
+  `s!ajudarpg`) e para moderação (`s!rpggive`, `s!rpgtake`, `s!rpgset`,
+  `s!rpgitem`, `s!rpgitemremover`, `s!rpgficha`, `s!rpglimparcombate`,
+  `s!rpgreset`). `/casa` continua removido do slash.
+- `cogs/ultility.py`: categoria `RPG` com emoji 🧭 no mapa do `/help` e regra
+  automática para cogs com "rpg"/"aventura"/"ficha"/"personagem".
 
 ### Testes e documentação
 

@@ -21,6 +21,7 @@ from unittest.mock import patch
 _BOOT_DIR = tempfile.mkdtemp(prefix="shaggy_rpg_boot_")
 os.environ["SHAGGY_DB_PATH"] = str(Path(_BOOT_DIR) / "boot.db")
 
+from rpg_system import admin as rpg_admin  # noqa: E402
 from rpg_system.achievements_v2 import AchievementsV2  # noqa: E402
 from rpg_system.ai.narrative import NarrativeAI  # noqa: E402
 from rpg_system.combat import Combate  # noqa: E402
@@ -35,7 +36,7 @@ from rpg_system.economy import alterar_saldo_tx, obter_saldo_tx  # noqa: E402
 from rpg_system.energy import Energy  # noqa: E402
 from rpg_system.exploration import Exploration  # noqa: E402
 from rpg_system.goals import obter_objetivos  # noqa: E402
-from rpg_system.houses import Houses  # noqa: E402
+from rpg_system.houses import Houses, TIPOS_CASA, resolver_tipo_casa  # noqa: E402
 from rpg_system.inventory import Inventario  # noqa: E402
 from rpg_system.items import CATALOGO_ITENS  # noqa: E402
 from rpg_system.market_v2 import MarketV2, normalizar  # noqa: E402
@@ -605,6 +606,34 @@ class TestObjetivosECasa(BaseRPGTest):
         self.assertFalse(res["sucesso"])
         self.assertIsNone(houses.obter_casa())
 
+    def test_casa_aceita_aliases_e_preco_escalona(self):
+        self.assertEqual(resolver_tipo_casa("Casa de Pedra"), "casa_pedra")
+        self.assertEqual(resolver_tipo_casa("casa_pedra"), "casa_pedra")
+        self.assertEqual(resolver_tipo_casa("PEDRA"), "casa_pedra")
+        self.assertIsNone(resolver_tipo_casa("castelo"))
+
+        self.criar_char()
+        self.definir_saldo(5000)
+        houses = Houses(None, GUILD, USER)
+        res = houses.comprar_casa("pedra")
+        self.assertTrue(res["sucesso"], res)
+        self.assertEqual(res["tipo"], "casa_pedra")
+        self.assertEqual(res["preco"], TIPOS_CASA["casa_pedra"]["preco"])
+
+        self.assertTrue(houses.melhorar_casa()["sucesso"])  # nível 1 -> 2: 200
+        self.assertTrue(houses.melhorar_casa()["sucesso"])  # nível 2 -> 3: 400
+        self.assertTrue(houses.melhorar_casa()["sucesso"])  # nível 3 -> 4: 600
+        self.assertEqual(houses.obter_casa()["nivel"], 4)
+        self.assertEqual(self.saldo(), 5000 - 1200 - 200 - 400 - 600)
+
+    def test_casa_tipo_invalido_explica_opcoes(self):
+        self.criar_char()
+        self.definir_saldo(500)
+        res = Houses(None, GUILD, USER).comprar_casa("castelo")
+        self.assertFalse(res["sucesso"])
+        self.assertIn("opcoes", res)
+        self.assertEqual(set(res["opcoes"]), set(TIPOS_CASA))
+
 
 class TestEnergia24h(BaseRPGTest):
     def _mover_regen(self, segundos_atras: int):
@@ -652,9 +681,37 @@ class TestEnergia24h(BaseRPGTest):
 class TestCombate(BaseRPGTest):
     def test_configuracao_de_combate(self):
         self.assertEqual(COMBATE_ENERGIA_CUSTO, 4)
-        self.assertEqual(len(Combate(GUILD, USER).catalogo()), 5)
-        nomes = {i["nome"] for i in Combate(GUILD, USER).catalogo()}
-        self.assertEqual(nomes, {"Goblin", "Mímico", "Diabrete", "Orc", "Cérbero"})
+        catalogo = Combate(GUILD, USER).catalogo()
+        self.assertEqual(len(catalogo), 10)
+        nomes = {i["nome"] for i in catalogo}
+        self.assertEqual(
+            nomes,
+            {
+                "Goblin", "Rato Gigante", "Mímico", "Diabrete", "Esqueleto",
+                "Orc", "Aranha Gigante", "Cérbero", "Troll", "Dragão Ancião",
+            },
+        )
+        especiais = [i for i in catalogo if i["especial"]]
+        self.assertEqual([i["nome"] for i in especiais], ["Cérbero"])
+        niveis = sorted(i["nivel_min"] for i in catalogo)
+        self.assertEqual(niveis[0], 1)
+        self.assertEqual(niveis[-1], 15)
+        for inimigo in catalogo:
+            self.assertTrue(inimigo["descricao"], inimigo["nome"])
+            self.assertTrue(inimigo["dica"], inimigo["nome"])
+            self.assertGreater(inimigo["pv"], 0, inimigo["nome"])
+            self.assertGreater(inimigo["xp"], 0, inimigo["nome"])
+
+    def test_novos_inimigos_tem_aliases_e_resolvem_por_nome(self):
+        self.criar_char()
+        combat = Combate(GUILD, USER)
+        for nome in ["Rato Gigante", "Esqueleto", "Aranha Gigante", "Troll", "Dragão Ancião"]:
+            alvo = combat.resolver_inimigo(nome)
+            self.assertEqual(alvo["status"], "ok", nome)
+            self.assertEqual(alvo["inimigo"]["nome"], nome, nome)
+        self.assertEqual(combat.resolver_inimigo("dragao")["inimigo"]["key"], "dragao")
+        self.assertEqual(combat.resolver_inimigo("rato")["inimigo"]["key"], "rato_gigante")
+        self.assertEqual(combat.resolver_inimigo("spider")["inimigo"]["key"], "aranha_gigante")
 
     def test_vitoria_concede_xp_moedas_e_limpa_estado(self):
         self.criar_char()
@@ -821,6 +878,116 @@ class TestCombate(BaseRPGTest):
         self.assertLess(res["pv_inimigo"], pv_inimigo)
 
 
+class TestAdminRPG(BaseRPGTest):
+    def test_ajustar_e_definir_moedas(self):
+        self.criar_char()
+        self.definir_saldo(100)
+        res = rpg_admin.ajustar_moedas(GUILD, USER, 250, moderador_id=999)
+        self.assertTrue(res["sucesso"], res)
+        self.assertEqual(res["saldo"], 350)
+        self.assertEqual(self.saldo(), 350)
+
+        res = rpg_admin.ajustar_moedas(GUILD, USER, -50, moderador_id=999)
+        self.assertTrue(res["sucesso"], res)
+        self.assertEqual(self.saldo(), 300)
+
+        res = rpg_admin.definir_moedas(GUILD, USER, 42, moderador_id=999)
+        self.assertTrue(res["sucesso"], res)
+        self.assertEqual(res["anterior"], 300)
+        self.assertEqual(self.saldo(), 42)
+
+        self.assertFalse(rpg_admin.ajustar_moedas(GUILD, USER, 0)["sucesso"])
+        self.assertFalse(rpg_admin.definir_moedas(GUILD, USER, -1)["sucesso"])
+
+    def test_ajustar_e_definir_xp_recalcula_nivel(self):
+        self.criar_char()
+        res = rpg_admin.ajustar_xp(GUILD, USER, 100, moderador_id=999)
+        self.assertTrue(res["sucesso"], res)
+        self.assertEqual(res["xp_total"], 100)
+        self.assertEqual(res["nivel"], 2)
+
+        res = rpg_admin.definir_xp(GUILD, USER, 0, moderador_id=999)
+        self.assertTrue(res["sucesso"], res)
+        self.assertEqual(res["nivel"], 1)
+        self.assertEqual(Progression(GUILD, USER).obter_personagem()["xp"], 0)
+
+        self.assertFalse(rpg_admin.ajustar_xp(GUILD, USER, 0)["sucesso"])
+        self.assertFalse(rpg_admin.definir_xp(GUILD, USER, -5)["sucesso"])
+
+    def test_energia_ajustada_e_limitada_ao_maximo(self):
+        self.criar_char()
+        res = rpg_admin.definir_energia(GUILD, USER, 30)
+        self.assertTrue(res["sucesso"], res)
+        self.assertEqual(self.energia(), 30)
+
+        res = rpg_admin.ajustar_energia(GUILD, USER, 20)
+        self.assertTrue(res["sucesso"], res)
+        self.assertEqual(res["energia"], 50)
+
+        res = rpg_admin.ajustar_energia(GUILD, USER, 10_000)
+        self.assertTrue(res["sucesso"], res)
+        self.assertEqual(res["energia"], ENERGIA_MAX)
+
+        res = rpg_admin.ajustar_energia(GUILD, USER, -10_000)
+        self.assertTrue(res["sucesso"], res)
+        self.assertEqual(res["energia"], 0)
+        self.assertFalse(rpg_admin.ajustar_energia(GUILD, USER, 0)["sucesso"])
+
+    def test_dar_e_remover_item(self):
+        self.criar_char()
+        inv = Inventario(GUILD, USER)
+        res = rpg_admin.dar_item(GUILD, USER, "Picareta de Ferro", 2, 999)
+        self.assertTrue(res["sucesso"], res)
+        self.assertEqual(inv.obter().get("picareta_ferro"), 2)
+
+        res = rpg_admin.remover_item(GUILD, USER, "picareta de ferro", 1, 999)
+        self.assertTrue(res["sucesso"], res)
+        self.assertEqual(inv.obter().get("picareta_ferro"), 1)
+
+        res = rpg_admin.remover_item(GUILD, USER, "Picareta de Ferro", 5, 999)
+        self.assertFalse(res["sucesso"])
+        self.assertFalse(rpg_admin.dar_item(GUILD, USER, "item inexistente", 1)["sucesso"])
+
+    def test_sem_personagem_nao_altera_nada(self):
+        res = rpg_admin.ajustar_moedas(GUILD, USER, 10)
+        self.assertFalse(res["sucesso"])
+        self.assertIn("personagem", res["motivo"].lower())
+
+    def test_limpar_combate(self):
+        self.criar_char()
+        combat = Combate(GUILD, USER)
+        self.assertTrue(combat.iniciar("Goblin", rng=_RngFixo())["sucesso"])
+        res = rpg_admin.limpar_combate(GUILD, USER, 999)
+        self.assertTrue(res["sucesso"], res)
+        self.assertEqual(combat.status()["estado"], "sem_combate")
+        self.assertFalse(rpg_admin.limpar_combate(GUILD, USER, 999)["sucesso"])
+
+    def test_reset_preserva_inventario_e_saldo(self):
+        self.criar_char()
+        self.definir_saldo(777)
+        Inventario(GUILD, USER).adicionar("picareta_ferro", 1)
+        Houses(None, GUILD, USER).comprar_casa("tenda")
+
+        res = rpg_admin.resetar_personagem(GUILD, USER, 999)
+        self.assertTrue(res["sucesso"], res)
+        self.assertIsNone(Progression(GUILD, USER).obter_personagem())
+        self.assertIsNone(Houses(None, GUILD, USER).obter_casa())
+        self.assertEqual(Inventario(GUILD, USER).obter().get("picareta_ferro"), 1)
+        self.assertEqual(self.saldo(), 677)
+
+    def test_resumo_e_ranking(self):
+        self.criar_char()
+        self.definir_saldo(50)
+        dados = rpg_admin.resumo(GUILD, USER)
+        self.assertEqual(dados["saldo"], 50)
+        self.assertEqual(dados["energia_max"], ENERGIA_MAX)
+        self.assertEqual(dados["personagem"]["nome"], "Teste")
+
+        ranking = rpg_admin.ranking(GUILD, 10)
+        self.assertEqual(len(ranking), 1)
+        self.assertEqual(ranking[0]["user_id"], USER)
+
+
 class TestComandosDiscord(unittest.TestCase):
     def test_cog_tem_equipar_e_nao_tem_casa(self):
         from cogs.rpg import RPG
@@ -844,6 +1011,29 @@ class TestComandosDiscord(unittest.TestCase):
         self.assertIn("profissao", assinaturas["profissoes"])
         self.assertIn("inimigo", assinaturas["combate"])
         self.assertIn("arma", assinaturas["combate"])
+
+    def test_comandos_de_prefixo_do_rpg(self):
+        from cogs.rpg import RPG
+
+        class FakeBot:
+            pass
+
+        cog = RPG(FakeBot())
+        prefixos = {c.name for c in cog.get_commands()}
+        esperados = {
+            "rpg", "mochila", "minerar", "trabalhar", "explorar", "descansar",
+            "lutar", "casa", "objetivos", "rankingrpg", "conquistas", "ajudarpg",
+        }
+        self.assertTrue(esperados.issubset(prefixos), esperados - prefixos)
+        admin = {
+            "rpggive", "rpgtake", "rpgset", "rpgitem", "rpgitemremover",
+            "rpgficha", "rpglimparcombate", "rpgreset",
+        }
+        self.assertTrue(admin.issubset(prefixos), admin - prefixos)
+        aliases = {a for c in cog.get_commands() for a in c.aliases}
+        self.assertIn("ficha", aliases)
+        self.assertIn("combate", aliases)
+        self.assertIn("rphelp", aliases)
 
 
 if __name__ == "__main__":
