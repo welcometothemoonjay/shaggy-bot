@@ -1,28 +1,88 @@
-# Segredos e variáveis de ambiente
+# ==========================================
+# SHAGGY BOT — GITIGNORE
+# ==========================================
+
+# --- Segredos e variáveis de ambiente ---
 .env
 .env.*
 !.env.example
 *.pem
 *.key
+*.p12
+*.pfx
+secrets/
+credentials/
 
-# Python
+# --- Python ---
 __pycache__/
 *.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# --- Ambientes virtuais ---
 .venv/
 venv/
+env/
+ENV/
 
-# Banco de dados e arquivos temporários
-data/shaggy.db
-data/*.db
-data/*.db-wal
-data/*.db-shm
+# --- Banco de dados ---
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
 *.sqlite
 *.sqlite3
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
 
-# Logs
+# --- Logs e arquivos temporários ---
 *.log
+logs/
+tmp/
+temp/
+*.tmp
+*.bak
+*.swp
+*.swo
+*~
 
-# Editor e sistema
+# --- Backups locais ---
+backups/
+*.backup
+*.dump
+
+# --- Testes e relatórios gerados ---
+.coverage.*
+test-results/
+coverage.xml
+
+# --- Editores e IDEs ---
 .vscode/
 .idea/
+*.code-workspace
+
+# --- Sistema operacional ---
 .DS_Store
+Thumbs.db
+desktop.ini
+
+# --- Node.js (caso exista interface web) ---
+node_modules/
+.npm/
+.parcel-cache/
+.next/
+
+# --- Arquivos locais de configuração ---
+.env.local
+.local/
