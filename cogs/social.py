@@ -220,3 +220,53 @@ class Social(commands.Cog):
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(Social(bot))
+
+
+    # Comandos prefixo (complemento para reduzir carga de slash)
+    @commands.command(name="ola", aliases=["oi", "hi"])
+    async def ola_prefix(self, ctx: commands.Context):
+        import random
+        respostas = [
+            "E aí! 👻 O Shaggy chegou!",
+            "Opa! Como você está? ✨",
+            "Salve! Que bom ver você por aqui! 👋",
+            "Oi, criatura da internet! 👁️",
+            "Alô, alô! O servidor está vivo! 🎉",
+        ]
+        await ctx.send(random.choice(respostas))
+
+    @commands.command(name="abracar")
+    async def abracar_prefix(self, ctx: commands.Context, membro: discord.Member = None):
+        if membro is None:
+            await ctx.send("Mencione quem você quer abraçar.")
+            return
+        if membro.id == ctx.author.id:
+            await ctx.send(f"🫂 {ctx.author.mention} se abraçou. Amor-próprio também conta!")
+            return
+        if membro.bot:
+            await ctx.send(f"🤖 {ctx.author.mention} abraçou {membro.mention}. O Shaggy retribui o abraço!")
+            return
+        import random
+        mensagens = ["enviou um abraço quentinho para", "deu um abraço apertado em", "ofereceu um abraço virtual para", "abraçou com carinho"]
+        await ctx.send(f"🫂 {ctx.author.mention} {random.choice(mensagens)} {membro.mention}!")
+
+    @commands.command(name="beijar")
+    async def beijar_prefix(self, ctx: commands.Context, membro: discord.Member = None):
+        if membro is None:
+            await ctx.send("Mencione quem você quer beijar.")
+            return
+        if membro.id == ctx.author.id:
+            await ctx.send(f"💋 {ctx.author.mention} mandou um beijo para si mesmo. Autoconfiança!")
+            return
+        await ctx.send(f"💋 {ctx.author.mention} mandou um beijo virtual para {membro.mention}!")
+
+    @commands.command(name="elogiar")
+    async def elogiar_prefix(self, ctx: commands.Context, membro: discord.Member = None):
+        if membro is None:
+            await ctx.send("Mencione quem você quer elogiar.")
+            return
+        import random
+        elogios = ["tem uma energia incrível! ✨", "deixa qualquer conversa mais interessante! 💫", "merece reconhecimento pelo que faz! 🌟",
+                   "tem um ótimo senso de humor! 😂", "é uma pessoa especial neste servidor! 💜", "tem estilo de protagonista! 🎬",
+                   "merece um dia cheio de coisas boas! 🌈", "faz diferença por aqui! 👻"]
+        await ctx.send(f"💌 {ctx.author.mention} disse que {membro.mention} {random.choice(elogios)}")

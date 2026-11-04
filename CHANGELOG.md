@@ -2,6 +2,143 @@
 
 Todas as mudanças relevantes do projeto serão registradas neste arquivo.
 
+## [03/11/2026] — RPG Textual: energia 24h e combate por turnos
+
+### ✨ Adicionado
+
+- **Recarga automática de energia:** 100% a cada 24h, verificada de forma
+  preguiçosa em `rpg_flags.energia_regen_em`. `/descansar` continua
+  restaurando tudo e reinicia o ciclo.
+- **Combate por turnos** em `/combate`: Goblin, Mímico, Diabrete, Orc e
+  Cérbero (especial), com ataque por mãos ou item, XP por golpe, recompensas
+  de vitória e derrota sem perda de moedas.
+- **Estado persistente** em `rpg_combates`, um combate ativo por jogador.
+- **Conquistas de combate ativas:** primeira vitória, 10 vitórias e vitória
+  sobre o Cérbero.
+- `/energia` e `/personagem` mostram a recarga de 24h e estatísticas de
+  combate.
+
+### 🔧 Alterado
+
+- Ferramentas agora expõem `poder_combate = 4 + tier × 2`; demais itens são
+  armas improvisadas.
+- Limite de comandos: **100 slash commands** verificados; `main.py` faz sync
+  global em exatamente 100 e só bloqueia acima disso.
+- Documentação atualizada para o estado real do RPG.
+
+### 🧪 Testes
+
+- `.venv/bin/python -m unittest discover -s tests -v` — **49 testes, OK**.
+- Carregamento de cogs — **18 cogs, 100 comandos, 0 duplicados, 0 falhas**.
+
+---
+
+## [30/10/2026] — Estabilização Phase A: P-01 e P-05
+
+### 🔧 Corrigido
+
+- **P-01 (alta):** `bot.run(TOKEN)` estava fora do bloco `if __name__ == "__main__":` no
+  `main.py`. Agora a inicialização do bot só ocorre dentro do guard; importar o módulo
+  não inicia o bot nem exige token.
+- **P-05 (média):** o caminho de XP por mensagem (`XpAndCoins.processar_mensagem`) executava
+  SQLite síncrono direto no event loop. A transação de cooldown/XP/Abysmus agora roda em
+  `asyncio.to_thread` (helper síncrono `_processar_xp_mensagem_sync`), preservando a mesma
+  transação atômica e o comportamento de cooldown.
+
+### 🧪 Testes
+
+- Nova suíte `TestXpPorMensagem` em `test_rpg.py`: 3 testes cobrindo gravação na transação,
+  respeito ao cooldown e disponibilidade do segundo ganho.
+- Suíte completa: **127 testes aprovados** (`test_rpg`: 38, `test_ruptura`: 89).
+
+### 🔧 Corrigido (complemento)
+
+- **P-03 (média):** o `RupturaTemporal.cog_unload()` descartava runs ativas com apenas um
+  log de aviso. Agora o unload finaliza cada run ativa pelo mesmo motor usado no timeout e
+  no fim voluntário (`finalizar_run`), preservando o fluxo de recompensas e a idempotência
+  (`run.finalizada`). Falhas durante a finalização são registradas via `log.exception`.
+
+### 🧪 Testes (complemento)
+
+- Nova suíte `TestFinalizacaoCogDescarregamento` em `test_ruptura.py`: **7 testes**
+  (unload sem runs, unload com run, unload em combate, sem dupla recompensa, falha de
+  finalização não propaga, jogador fica livre e recarga com nova run).
+- Suíte completa: **134 testes aprovados** (`test_rpg`: 38, `test_ruptura`: 96).
+
+---
+
+## [30/10/2026] — P-10 (Fase 1): Ledger idempotente de recompensas
+
+### ✨ Adicionado
+
+- Tabela aditiva `rpg_recompensas` (via `CREATE TABLE IF NOT EXISTS`) com
+  `UNIQUE (guild_id, user_id, run_id, dedutor_chave, tipo)`, status
+  (`pendente`/`processando`/`ok`/`falhou`), `erro`, `tentativas`, `criado_em` e
+  `processado_em`, além do índice `idx_rpg_recompensas_user`.
+- Método `XpAndCoins.conceder_recompensa_com_ledger(...)` com INSERT ON CONFLICT DO
+  UPDATE + leitura de status + grant via `_gravar` na mesma transação `BEGIN IMMEDIATE`.
+
+### 🔧 Alterado
+
+- `award_rewards` (Ruptura) passa a usar o ledger quando há contexto de run
+  (`run_id`, `dedutor_chave`, `tipo`); retorna False em caso de falha.
+- `finalizar_run` só marca `run.finalizada` e aplica o bônus quando a concessão
+  idempotente confirma sucesso (`persistido`); em falha o run permanece para retry.
+
+### 🧪 Testes
+
+- Nova suíte `test_ruptura_ledger.py`: **7 testes** (idempotência, falha no ledger, bônus final,
+  reprocessamento de finalização, concessão com XP/Abysmus).
+- Suíte completa: **141 testes aprovados** (`test_rpg`: 38, `test_ruptura`: 96 + ledger 7).
+
+## [29/10/2026] — RPG persistente: Ruptura Viva
+
+### ✨ Adicionado
+
+- **Novo Cog `cogs/rpg.py`** e pacote de domínio **`rpg/`** com camadas separadas:
+  catálogo, personagem, inventário, economia, mundo, profissões, missões, combate e
+  relacionamentos. Regras de negócio não dependem de `discord`.
+- **Personagem persistente** com nome, uma das 10 classes reais, nível/XP, vida,
+  reputação, títulos, pistas e histórico. O kit inicial reutiliza itens reais do catálogo
+  (picareta gasta, ervas e poção).
+- **8 profissões** (Minerador, Ferreiro, Alquimista, Caçador, Investigador, Mercador,
+  Artesão e Explorador) com XP/nível próprios, bônus de classe e troca de profissão.
+- **Mundo com 3 regiões** ligadas às eras (`Da'kor`, `Era a Vapor`, `Futuro Distorcido`),
+  locais, recursos, NPCs, contratos, requisitos de acesso e riscos de viagem.
+- **Mineração e trabalho** com ferramenta exigida, cooldown, limite diário e recompensas
+  variáveis; segredos podem revelar pistas.
+- **Forja com 24 receitas** data-driven para armas, armaduras, ferramentas, poções,
+  consumíveis e refinados, com validação atômica de ingredientes/requisitos/custo.
+- **Combate persistente** reutilizando `EnemySpec`, `HABILIDADES` e o motor da Ruptura.
+  Sessão única por jogador em `rpg_combate`, com timeout, ataque, técnica, guarda,
+  concentração, itens, fuga, vitória, derrota e contratos de caça.
+- **Derrota moderada**: restaura parte da vida e aplica perdas limitadas de Abysmus,
+  materiais e reputação, sem apagar o personagem nem a run do roguelite.
+- **Missões diárias, semanais e de história**, investigações com escolhas, pistas
+  persistidas e recompensas atômicas com proteção contra resgate duplicado.
+- **Relacionamentos consensuais** (namoro/casamento), um vínculo ativo por pessoa,
+  histórico, presentes limitados por dia e bônus apenas cosméticos/conveniência.
+- **Economia integrada ao Abysmus** via `XpAndCoins`, com preços validados no servidor,
+  venda de itens e teto diário de **150 Abysmus** para ganhos do RPG.
+- **Comandos de prefixo e slash** para todos os fluxos principais, com embeds,
+  paginação, modais, botões reais e checagem de dono/estado/requisitos.
+- **Migrações aditivas** com `CREATE TABLE IF NOT EXISTS` para 15 tabelas `rpg_*`; nenhuma
+  tabela existente foi alterada, apagada ou recriada.
+- **Suíte `test_rpg.py`** com 35 testes. Total do repositório: **124 testes aprovados**
+  (89 de `test_ruptura.py` + 35 de `test_rpg.py`).
+
+### 🔧 Alterado
+
+- `cogs/ruptura.py::criar_inimigo` aceita `era` e `nome` opcionais para usos do RPG,
+  preservando o comportamento anterior.
+
+### 🗄️ Banco de dados
+
+- Novas tabelas em `data/shaggy.db`: `rpg_personagem`, `rpg_profissoes`,
+  `rpg_equipamentos`, `rpg_regioes`, `rpg_combate`, `rpg_cacadas`, `rpg_missoes`,
+  `rpg_pistas`, `rpg_conquistas`, `rpg_relacionamentos`, `rpg_relacao_membros`,
+  `rpg_acoes`, `rpg_cooldowns`, `rpg_contadores` e `rpg_ganhos_diarios`.
+
 ## [26/10/2026] — Ruptura Temporal: Expansão 3 (mini-Chefes e Chefes por era)
 
 ### ✨ Adicionado

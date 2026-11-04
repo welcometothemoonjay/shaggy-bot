@@ -3,6 +3,7 @@ import logging
 from pathlib import Path
 
 import discord
+from discord import app_commands
 from dotenv import load_dotenv
 from discord.ext import commands
 
@@ -46,6 +47,8 @@ class Shaggy(commands.Bot):
             )
 
         # Carrega automaticamente todos os módulos da pasta cogs.
+        carregados = []
+        falhas = []
         for arquivo in sorted(pasta.glob("*.py")):
             # Ignora __init__.py e outros arquivos especiais.
             if arquivo.name.startswith("_"):
@@ -55,24 +58,52 @@ class Shaggy(commands.Bot):
 
             try:
                 await self.load_extension(extensao)
+                carregados.append(extensao)
                 logging.info(
                     "[SHAGGY] Módulo carregado: %s",
                     extensao,
                 )
-            except Exception:
+            except discord.app_commands.errors.CommandLimitReached:
+                falhas.append((extensao, "CommandLimitReached"))
+                logging.error("[SHAGGY] LIMITE DE COMANDOS AO CARREGAR %s. Continuando sem falhar todo o bot.", extensao)
+                continue
+            except Exception as e:
+                falhas.append((extensao, e))
                 logging.exception(
                     "[SHAGGY] Falha ao carregar: %s",
                     extensao,
                 )
-                raise
+                # Não interromper carregamento por falhas não-críticas
+                continue
+
+        logging.info("[SHAGGY] Cogs carregados: %d | Falhas: %d", len(carregados), len(falhas))
 
         # Sincroniza os comandos slash com o Discord.
-        sincronizados = await self.tree.sync()
-
-        logging.info(
-            "[SHAGGY] %s comandos sincronizados globalmente.",
-            len(sincronizados),
-        )
+        try:
+            # Verifica quantidade aproximada
+            cmds = list(self.tree.get_commands())
+            if len(cmds) > 100:
+                logging.error("[SHAGGY] LIMITE GLOBAL DE 100 SLASH COMMANDS EXCEDIDO (%d comandos). Pulando sync global; comandos funcionarão por servidor.", len(cmds))
+                try:
+                    # Tenta limpar sync global
+                    await self.tree.sync()
+                except Exception:
+                    pass
+            else:
+                sincronizados = await self.tree.sync()
+                logging.info(
+                    "[SHAGGY] %s comandos sincronizados globalmente.",
+                    len(sincronizados),
+                )
+        except discord.app_commands.errors.CommandLimitReached:
+            logging.error("[SHAGGY] LIMITE GLOBAL DE 100 SLASH COMMANDS ATINGIDO. Pulando sync global.")
+            try:
+                await self.tree.sync()
+            except Exception:
+                pass
+        except Exception:
+            logging.exception("[SHAGGY] Falha ao sincronizar comandos globais.")
+            pass
 
 
 # =========================
@@ -133,4 +164,4 @@ if __name__ == "__main__":
             "e a variável token_shaggy."
         )
 
-bot.run(TOKEN)
+    bot.run(TOKEN)

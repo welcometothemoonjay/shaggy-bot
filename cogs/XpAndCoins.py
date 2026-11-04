@@ -28,6 +28,15 @@ API PARA OUTROS COGS (ex.: Ruptura Temporal)
         guild_id, user_id, xp=50, coins=1, origem="ruptura_temporal",
     )
 
+    # Recompensas de run com ledger idempotente (P-10 / Fase 1):
+    status = cog.conceder_recompensa_com_ledger(
+        guild_id=guild_id, user_id=user_id,
+        run_id=run_id, dedutor_chave=chave_dedup, tipo="abate",
+        xp=50, abysmus=1,
+    )
+    # status: "creditado" (granted agora) | "pulado" (já creditado) | "falhou".
+    # Em "falhou" o status fica registrado em rpg_recompensas para retry.
+
 IMPORTANTE: o servidor (guild_id) é obrigatório, porque o saldo e o XP
 são por servidor. O jogo precisa enviar o guild_id da interação.
 
@@ -356,6 +365,32 @@ class XpAndCoins(commands.Cog):
                 )
                 log.info("Migração: coluna daily_streak adicionada.")
 
+            # Ledger de recompensas de run (P-10 / Fase 1): idempotência das
+            # concessões de XP/Abysmus de abate e bônus final. Aditivo apenas
+            # (CREATE TABLE IF NOT EXISTS): bancos antigos não são alterados.
+            db.execute("""
+                CREATE TABLE IF NOT EXISTS rpg_recompensas (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    guild_id INTEGER NOT NULL,
+                    user_id INTEGER NOT NULL,
+                    run_id TEXT NOT NULL,
+                    dedutor_chave TEXT NOT NULL,
+                    tipo TEXT NOT NULL,
+                    xp INTEGER NOT NULL DEFAULT 0,
+                    abysmus INTEGER NOT NULL DEFAULT 0,
+                    status TEXT NOT NULL DEFAULT 'pendente',
+                    erro TEXT,
+                    tentativas INTEGER NOT NULL DEFAULT 0,
+                    criado_em TEXT NOT NULL,
+                    processado_em TEXT,
+                    UNIQUE (guild_id, user_id, run_id, dedutor_chave, tipo)
+                )
+            """)
+            db.execute("""
+                CREATE INDEX IF NOT EXISTS idx_rpg_recompensas_user
+                ON rpg_recompensas (guild_id, user_id, status, id DESC)
+            """)
+
     def garantir_usuario(self, db, guild_id: int, user_id: int):
         db.execute("""
             INSERT OR IGNORE INTO user_stats
@@ -546,6 +581,11 @@ class XpAndCoins(commands.Cog):
         - coins: Abysmus concedido diretamente. Deve ser RARO (ex.: um
           drop de chance baixa), já que o Abysmus é a moeda rara.
         - origem: texto usado só no log do terminal.
+        - Para recompensas de RUN (abate/bônus final), prefira
+          `conceder_recompensa_com_ledger`: ela grava o status no ledger
+          `rpg_recompensas` e é idempotente por (guild_id, user_id, run_id,
+          dedutor_chave, tipo). Este método continua disponível para outros
+          fluxos (ex.: RPG via `rpg/economy.py`).
         """
         if xp < 0 or coins < 0:
             raise ValueError("xp e coins devem ser valores positivos.")
@@ -564,6 +604,111 @@ class XpAndCoins(commands.Cog):
             r.nivel_antes, r.nivel, r.coins_total,
         )
         return r
+
+    def conceder_recompensa_com_ledger(
+        self,
+        guild_id: int,
+        user_id: int,
+        run_id: str,
+        dedutor_chave: str,
+        tipo: str,
+        xp: int = 0,
+        abysmus: int = 0,
+    ) -> str:
+        """
+        Concede XP/Abysmus de uma run (abate ou bônus final) com idempotência
+        via ledger `rpg_recompensas` (P-10 / Fase 1).
+
+        A chave de deduplicação é (guild_id, user_id, run_id, dedutor_chave, tipo):
+
+        - Abate: `run_id` + `dedutor_chave` = f"{categoria}|{spec.nome}" (mesma
+          chave usada em `run.abatidos`) + tipo "abate".
+        - Bônus final: `run_id` + `dedutor_chave` fixo por run ("final|<run_id>")
+          + tipo "bonus_final".
+
+        Fluxo (TODAS dentro de uma única transação BEGIN IMMEDIATE):
+
+        1. INSERT ... ON CONFLICT (...) DO UPDATE: se a linha já existe com
+           status 'ok', mantém 'ok'; caso contrário (nova ou retry) marca
+           'pendente'.
+        2. Lê o status:
+           - 'ok'        -> a recompensa já foi creditada: retorna "pulado"
+             (idempotente; nada é concedido de novo).
+           - demais     -> marca 'processando', grava via `_gravar` (que soma o
+             XP e o Abysmus por nível + extra) e marca 'ok' (+ processado_em).
+        3. Se o grant falhar: marca 'falhou' (+ erro, + tentativas) e propaga a
+           exceção (o `transacao()` faz rollback e a falha sobe para o chamador).
+
+        Retorna "creditado" (creditou agora, inclusive reprocessando um status
+        anterior não-'ok') ou "pulado" (já estava creditado). Em falha, propaga
+        exceção após registrar o status no ledger.
+        """
+        if xp < 0 or abysmus < 0:
+            raise ValueError("xp e abysmus devem ser valores positivos.")
+
+        agora = datetime.now(timezone.utc).isoformat()
+
+        with self.transacao() as db:
+            db.execute("""
+                INSERT INTO rpg_recompensas (
+                    guild_id, user_id, run_id, dedutor_chave, tipo,
+                    xp, abysmus, status, erro, tentativas, criado_em, processado_em
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, 'pendente', NULL, 0, ?, NULL)
+                ON CONFLICT (guild_id, user_id, run_id, dedutor_chave, tipo) DO UPDATE
+                    SET status = CASE WHEN rpg_recompensas.status = 'ok'
+                                      THEN rpg_recompensas.status
+                                      ELSE 'pendente' END,
+                        erro = NULL
+            """, (guild_id, user_id, run_id, dedutor_chave, tipo,
+                  max(0, int(xp)), max(0, int(abysmus)), agora))
+
+            status = db.execute("""
+                SELECT status FROM rpg_recompensas
+                WHERE guild_id = ? AND user_id = ? AND run_id = ?
+                  AND dedutor_chave = ? AND tipo = ?
+            """, (guild_id, user_id, run_id, dedutor_chave, tipo)).fetchone()[0]
+
+            if status == "ok":
+                # Idempotência: a recompensa já foi creditada. Pula o grant.
+                log.info(
+                    "Recompensa idempotente | guild=%s user=%s run=%s | "
+                    "dedutor=%s tipo=%s | já creditada; pulando.",
+                    guild_id, user_id, run_id, dedutor_chave, tipo,
+                )
+                return "pulado"
+
+            db.execute("""
+                UPDATE rpg_recompensas SET status = 'processando'
+                WHERE guild_id = ? AND user_id = ? AND run_id = ?
+                  AND dedutor_chave = ? AND tipo = ?
+            """, (guild_id, user_id, run_id, dedutor_chave, tipo))
+
+            try:
+                self._gravar(
+                    db, guild_id, user_id,
+                    lambda atual: atual + max(0, int(xp)),
+                    coins_extra=max(0, int(abysmus)),
+                )
+            except Exception as exc:
+                db.execute("""
+                    UPDATE rpg_recompensas
+                    SET status = 'falhou', erro = ?, tentativas = tentativas + 1
+                    WHERE guild_id = ? AND user_id = ? AND run_id = ?
+                      AND dedutor_chave = ? AND tipo = ?
+                """, (f"{tipo}: {exc}", guild_id, user_id, run_id,
+                     dedutor_chave, tipo))
+                # Persiste o status 'falhou'; o rollback do contextmanager é no-op.
+                db.commit()
+                raise
+
+            db.execute("""
+                UPDATE rpg_recompensas
+                SET status = 'ok', processado_em = ?
+                WHERE guild_id = ? AND user_id = ? AND run_id = ?
+                  AND dedutor_chave = ? AND tipo = ?
+            """, (agora, guild_id, user_id, run_id, dedutor_chave, tipo))
+
+        return "creditado"
 
     # ---------- Gerenciamento por administradores (atômico) ----------
 
@@ -650,7 +795,49 @@ class XpAndCoins(commands.Cog):
         hoje = self._hoje()
 
         # Leitura do cooldown, bônus diário e gravação: tudo na MESMA
-        # transação, sem janela para ganhos duplicados.
+        # transação, sem janela para ganhos duplicados. SQLite é síncrono, então
+        # o bloco roda em thread (asyncio.to_thread) para não travar o event
+        # loop (P-05).
+        r = await asyncio.to_thread(
+            self._processar_xp_mensagem_sync,
+            guild_id,
+            user_id,
+            chave,
+            agora,
+            ganho,
+            hoje,
+        )
+
+        if r is None:
+            # Ainda estava dentro do cooldown (ex.: cache vazio após restart).
+            return
+
+        self._cache_ultimo_xp[chave] = agora
+
+        if r.nivel > r.nivel_antes:
+            log.info(
+                "Level up guild=%s user=%s | nível %s -> %s | "
+                "+%s Abysmus | saldo=%s",
+                guild_id, user_id, r.nivel_antes, r.nivel,
+                r.coins_por_nivel, r.coins_total,
+            )
+            await self._anunciar_level_up(message, r)
+
+    def _processar_xp_mensagem_sync(
+        self,
+        guild_id: int,
+        user_id: int,
+        chave: tuple[int, int],
+        agora: float,
+        ganho: GanhoMensagem,
+        hoje: date,
+    ) -> Optional[ResultadoXp]:
+        """Grava o XP da mensagem numa única transação SQLite (execução síncrona).
+
+        Chamado via ``asyncio.to_thread`` pelo ``processar_mensagem`` para não
+        bloquear o event loop com SQLite (P-05). Retorna ``None`` quando o membro
+        ainda estava em cooldown na leitura, sem gravar nada.
+        """
         with self.transacao() as db:
             self.garantir_usuario(db, guild_id, user_id)
 
@@ -663,7 +850,7 @@ class XpAndCoins(commands.Cog):
             # O cache pode estar vazio (bot reiniciou): confirma no banco.
             if agora - ultimo_xp < COOLDOWN_XP_SEGUNDOS:
                 self._cache_ultimo_xp[chave] = ultimo_xp
-                return
+                return None
 
             bonus_diario, nova_streak, coletou = calcular_diario(
                 ultimo_dia, streak, hoje
@@ -698,7 +885,8 @@ class XpAndCoins(commands.Cog):
                 guild_id, user_id, r.nivel_antes, r.nivel,
                 r.coins_por_nivel, r.coins_total,
             )
-            await self._anunciar_level_up(message, r)
+
+        return r
 
     async def _anunciar_level_up(
         self,

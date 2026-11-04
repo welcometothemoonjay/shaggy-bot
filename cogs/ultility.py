@@ -1962,8 +1962,8 @@ class Utility(commands.Cog):
     # CANAIS  (/limpar /slowmode /trancar /destrancar /anunciar)
     # ========================================================
 
-    @app_commands.command(
-        name="limpar", description="Apaga mensagens do canal atual.")
+    #     @app_commands.command(
+    #         name="limpar", description="Apaga mensagens do canal atual.")
     @app_commands.guild_only()
     @app_commands.describe(
         quantidade=f"Quantas mensagens verificar (1 a {MAX_LIMPAR}).",
@@ -2006,8 +2006,8 @@ class Utility(commands.Cog):
             f"🧹 {len(apagadas)} mensagem(ns) apagada(s). "
             "Mensagens fixadas são preservadas.", ephemeral=True)
 
-    @app_commands.command(
-        name="slowmode", description="Define o modo lento de um canal.")
+    #     @app_commands.command(
+    #         name="slowmode", description="Define o modo lento de um canal.")
     @app_commands.guild_only()
     @app_commands.describe(
         segundos="Intervalo entre mensagens (0 desativa; máx. 21600).",
@@ -2071,8 +2071,8 @@ class Utility(commands.Cog):
             except discord.HTTPException:
                 pass
 
-    @app_commands.command(
-        name="trancar", description="Impede @everyone de falar no canal.")
+    #     @app_commands.command(
+    #         name="trancar", description="Impede @everyone de falar no canal.")
     @app_commands.guild_only()
     @app_commands.describe(canal="Canal de texto (padrão: o atual).",
                            motivo="Motivo do bloqueio.")
@@ -2083,8 +2083,8 @@ class Utility(commands.Cog):
                       motivo: Optional[str] = None):
         await self._alternar_tranca(interaction, canal, True, motivo)
 
-    @app_commands.command(
-        name="destrancar", description="Permite @everyone falar no canal.")
+    #     @app_commands.command(
+    #         name="destrancar", description="Permite @everyone falar no canal.")
     @app_commands.guild_only()
     @app_commands.describe(canal="Canal de texto (padrão: o atual).")
     @permissoes(manage_channels=True)
@@ -2093,8 +2093,8 @@ class Utility(commands.Cog):
                          canal: Optional[discord.TextChannel] = None):
         await self._alternar_tranca(interaction, canal, False, None)
 
-    @app_commands.command(
-        name="anunciar", description="Envia um anúncio em um canal.")
+    #     @app_commands.command(
+    #         name="anunciar", description="Envia um anúncio em um canal.")
     @app_commands.guild_only()
     @app_commands.describe(
         canal="Onde publicar o anúncio.", titulo="Título do anúncio.",
@@ -2201,4 +2201,131 @@ class Utility(commands.Cog):
 
 
 async def setup(bot: commands.Bot):
-    await bot.add_cog(Utility(bot))
+    try:
+        await bot.add_cog(Utility(bot))
+    except Exception as e:
+        import logging
+        log = logging.getLogger("shaggy.util")
+        log.error("Falha ao adicionar cog Utility: %s (ignorando para permitir inicialização)", e)
+        return
+
+# ============================================================
+# EMOJI MANAGER CENTRAL (adicionado para padronização)
+# ============================================================
+
+class ShaggyEmojis:
+    """Gerenciador central de emojis para o Shaggy Bot.
+    Usa fallbacks Unicode caso emojis personalizados não estejam configurados."""
+
+    # Emojis temáticos RPG Textual
+    RPG_TEXTUAL = {
+        "xp": "✨", "coins": "🪙", "abysmus": "🌀", "level": "⬆️", "nivel": "⬆️",
+        "vida": "❤️", "energia": "⚡", "mining": "⛏️", "picareta": "⛏️",
+        "ferramentas": "🔧", "trabalho": "💼", "profissao": "⚒️",
+        "inventario": "🎒", "equipamento": "🛡️", "escudo": "🛡️",
+        "roubo": "🥷", "protecao": "🛡️", "casa": "🏠", "casamento": "💍",
+        "missoes": "📜", "conquistas": "🏆", "ranking": "🏆",
+        "raridade_comum": "⚪", "raridade_raro": "🔵", "raridade_epico": "🟣", "raridade_lendario": "🟡",
+        "erro": "❌", "sucesso": "✅", "carregamento": "⏳",
+        "explorar": "🗺️", "descansar": "😴", "mercador": "🛒", "relacionamento": "💖",
+        "combate": "⚔️", "inimigo": "👺", "arma": "🗡️",
+    }
+
+    # Emojis temáticos Ruptura Temporal (identidade própria)
+    RUPTURA_TEMPORAL = {
+        "xp": "✨", "coins": "🪙", "abysmus": "🌀", "level": "⬆️", "nivel": "⬆️",
+        "vida": "❤️", "energia": "⚡", "tempo": "⏳", "ruptura": "🌀", "distorcao": "🕰️", "portal": "🌀",
+        "combate": "⚔️", "pvp": "⚔️", "chefes": "👹", "loot": "🎁",
+        "inventario": "🎒", "equipamento": "⚔️", "escudo": "🛡️",
+        "missoes": "🎯", "conquistas": "🏆", "ranking": "🏆",
+        "raridade_comum": "⚪", "raridade_raro": "🔷", "raridade_epico": "🟣", "raridade_lendario": "🟡",
+        "erro": "❌", "sucesso": "✅", "carregamento": "⏳",
+    }
+
+    # Emojis gerais compartilhados
+    GERAIS = {
+        "xp": "✨", "coins": "🪙", "abysmus": "🌀", "nivel": "⬆️", "level": "⬆️",
+        "vida": "❤️", "energia": "⚡", "inventario": "🎒", "equipamento": "🛡️",
+        "mining": "⛏️", "trabalho": "💼", "profissao": "⚒️",
+        "roubo": "🥷", "casa": "🏠", "casamento": "💍",
+        "missoes": "📜", "conquistas": "🏆", "ranking": "🏆",
+        "erro": "❌", "sucesso": "✅", "carregamento": "⏳",
+        "info": "ℹ️", "aviso": "⚠️",
+    }
+
+    @classmethod
+    def get(cls, key: str, tema: str = "geral", guild=None):
+        if tema in ("rpg", "rpg_textual"):
+            mapping = cls.RPG_TEXTUAL
+        elif tema in ("ruptura", "ruptura_temporal"):
+            mapping = cls.RUPTURA_TEMPORAL
+        else:
+            mapping = cls.GERAIS
+        return mapping.get(key, cls.GERAIS.get(key, "•"))
+
+    @classmethod
+    def rpg(cls, key: str):
+        return cls.get(key, tema="rpg_textual")
+
+    @classmethod
+    def ruptura(cls, key: str):
+        return cls.get(key, tema="ruptura_temporal")
+
+    @classmethod
+    def geral(cls, key: str):
+        return cls.get(key, tema="geral")
+
+
+emojis = ShaggyEmojis()
+EMOJI = ShaggyEmojis()
+
+
+def get_emoji(key: str, tema: str = "geral"):
+    return ShaggyEmojis.get(key, tema=tema)
+
+
+    @commands.command(name="avatar")
+    async def avatar_prefix(self, ctx: commands.Context, membro: discord.Member = None):
+        membro = membro or ctx.author
+        embed = discord.Embed(title=f"Avatar de {membro.display_name}", color=discord.Color.blurple())
+        embed.set_image(url=membro.display_avatar.with_size(1024).url)
+        await ctx.send(embed=embed)
+
+    @commands.command(name="usuario", aliases=["userinfo", "user"])
+    async def usuario_prefix(self, ctx: commands.Context, membro: discord.Member = None):
+        membro = membro or ctx.author
+        embed = discord.Embed(title=f"Informações de {membro}", color=discord.Color.blurple())
+        embed.add_field(name="ID", value=membro.id, inline=True)
+        embed.add_field(name="Entrou em", value=membro.joined_at.strftime("%d/%m/%Y") if membro.joined_at else "N/A", inline=True)
+        embed.add_field(name="Conta criada", value=membro.created_at.strftime("%d/%m/%Y"), inline=True)
+        await ctx.send(embed=embed)
+
+    @commands.command(name="servidor", aliases=["serverinfo"])
+    async def servidor_prefix(self, ctx: commands.Context):
+        g = ctx.guild
+        if not g:
+            return
+        embed = discord.Embed(title=g.name, color=discord.Color.blurple())
+        embed.add_field(name="Membros", value=g.member_count, inline=True)
+        embed.add_field(name="Cargos", value=len(g.roles), inline=True)
+        embed.add_field(name="Canais", value=len(g.channels), inline=True)
+        await ctx.send(embed=embed)
+
+    @commands.command(name="ping")
+    async def ping_prefix(self, ctx: commands.Context):
+        await ctx.send(f"Pong! {round(self.bot.latency*1000)}ms")
+
+
+    @commands.command(name="limpar")
+    @commands.has_permissions(manage_messages=True)
+    async def limpar_prefix(self, ctx: commands.Context, quantidade: int = 10):
+        if not ctx.channel.permissions_for(ctx.guild.me).manage_messages:
+            await ctx.send("Sem permissão para apagar mensagens.")
+            return
+        quantidade = min(max(1, quantidade), 200)
+        await ctx.channel.purge(limit=quantidade + 1)
+        msg = await ctx.send(f"Apagadas {quantidade} mensagens.", delete_after=5)
+
+    @commands.command(name="help")
+    async def help_prefix(self, ctx: commands.Context, comando: str = None):
+        await ctx.send("Use o comando `/help` ou digite `s!help` para ajuda.")

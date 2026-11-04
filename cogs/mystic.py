@@ -1036,3 +1036,7 @@ class Mystic(commands.Cog):
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(Mystic(bot))
+
+    @commands.command(name="tarot")
+    async def tarot_prefix(self, ctx: commands.Context):
+        await ctx.send("Use `/tarot` para consultar as cartas.")

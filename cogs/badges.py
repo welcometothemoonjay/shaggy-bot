@@ -127,7 +127,8 @@ ACOES = {
 
 
 # ------------------------------------------------------------
-# CATÁLOGO INICIAL: tema lua + horror cósmico (lore de Da'kor).
+# CATÁLOGO INICIAL: lua, horror cósmico e o roteiro do universo SFA
+# (cosmologia, alinhamentos, facções, Maré Morta, RPG e classes).
 # É instalado automaticamente ao iniciar o cog em cada servidor.
 # Só cria o que ainda não existe e
 # nunca sobrescreve insígnias já criadas.
@@ -224,6 +225,258 @@ INSIGNIAS_INICIAIS = [
      "raridade": "lendario", "preco": 20,
      "descricao": "Além das estrelas, algo antigo sonha. A sua insígnia pulsa quando o céu escurece, mesmo sob um teto fechado.",
      "beneficios": "Cargo 🌌 Eclipse de Drak'vuh, uma das insígnias mais raras da loja."},
+
+    # ================================================================
+    # EXPANSÃO BASEADA NO ROTEIRO DO UNIVERSO SFA (propostas, não cânone)
+    # ----------------------------------------------------------------
+    # Cada grupo cita o CÂNONE em que se apoia. Os textos são PROPOSTAS
+    # de ambientação: evitam afirmar o que o roteiro deixa EM ABERTO
+    # (natureza de Drakvu, relação entre Drakvu e Drak'vuh, motivo do
+    # selo, limites do Olho Metamorfo, desfecho de Inominável...).
+    # Drakvu (a árvore primordial) e Drak'vuh NÃO são tratados como
+    # sinônimos. O Ritual do Olho NÃO é igualado ao Olho Metamorfo.
+    # ================================================================
+
+    # ---- Cosmologia primordial ----
+    # CÂNONE: árvore primordial Drakvu; Malachais criou a matéria;
+    # Marjopyia deu sentido e regras; da junção surgiu o Inominável;
+    # os Ancestrais (Guardiões/Arquitetos) selaram Malachais e Marjopyia
+    # no Inominável; os alinhamentos Caóticos tentam romper o selo.
+    {"id": "semente_de_drakvu", "nome": "Semente de Drakvu", "emoji": "🌱",
+     "raridade": "raro", "preco": 5,
+     "descricao": "Dizem que tudo começou numa árvore anterior à realidade organizada. Esta semente não germina, mas também não apodrece.",
+     "beneficios": "Cargo 🌱 Semente de Drakvu."},
+    {"id": "fragmento_da_arvore_primordial", "nome": "Fragmento da Árvore Primordial", "emoji": "🌳",
+     "raridade": "epico", "preco": 9,
+     "descricao": "Uma casca que não combina com nenhuma floresta conhecida. Ninguém sabe dizer se a árvore de onde veio está viva, ou se \"viva\" é a palavra certa.",
+     "beneficios": "Cargo 🌳 Fragmento da Árvore Primordial."},
+    {"id": "leitor_da_materia", "nome": "Leitor da Matéria", "emoji": "🪨",
+     "raridade": "raro", "preco": 5,
+     "descricao": "Antes de haver forma, havia aquilo que pode ser forma. Você aprendeu a perceber do que as coisas são feitas, não só o que parecem.",
+     "beneficios": "Cargo 🪨 Leitor da Matéria."},
+    {"id": "escriba_das_regras", "nome": "Escriba das Regras", "emoji": "📜",
+     "raridade": "raro", "preco": 5,
+     "descricao": "Toda coisa existente obedece a alguma regra, ainda que ninguém a tenha escrito. Você anota as que encontra e as que parecem ter mudado.",
+     "beneficios": "Cargo 📜 Escriba das Regras."},
+    {"id": "juncao_improvavel", "nome": "Junção Improvável", "emoji": "⚖️",
+     "raridade": "epico", "preco": 10,
+     "descricao": "Matéria e sentido participam juntos da existência, mas talvez não devessem se fundir. O que nasce dessa junção resiste a ter um nome.",
+     "beneficios": "Cargo ⚖️ Junção Improvável."},
+    {"id": "guardiao_do_selo", "nome": "Guardião do Selo", "emoji": "🔏",
+     "raridade": "epico", "preco": 9,
+     "descricao": "O que foi selado não foi destruído. Você escolheu ficar do lado de quem vigia a rachadura, sem ter certeza de que o selo é o que parece ser.",
+     "beneficios": "Cargo 🔏 Guardião do Selo."},
+    {"id": "quebra_selos", "nome": "Quebra-Selos", "emoji": "⛓️",
+     "raridade": "epico", "preco": 9,
+     "descricao": "Nem todo mundo que quer romper o selo é cruel; alguns acham que ele é a prisão errada. Você ainda não decidiu qual desses você é.",
+     "beneficios": "Cargo ⛓️ Quebra-Selos."},
+    {"id": "nome_nao_dito", "nome": "Nome Não Dito", "emoji": "🕳️",
+     "raridade": "epico", "preco": 8,
+     "descricao": "A palavra está na ponta da língua e se recusa a sair. Você começa a suspeitar de que não é falta de memória.",
+     "beneficios": "Cargo 🕳️ Nome Não Dito."},
+    {"id": "eco_dos_ancestrais", "nome": "Eco dos Ancestrais", "emoji": "🏛️",
+     "raridade": "lendario", "preco": 14,
+     "descricao": "Guardiões, Arquitetos: os nomes mudam conforme quem conta. Eles decidiram selar o que a realidade talvez não pudesse conter. Por quê? Ninguém registrou a resposta.",
+     "beneficios": "Cargo 🏛️ Eco dos Ancestrais."},
+
+    # ---- Alinhamentos ----
+    # CÂNONE: Caótico, Luminária, Natural, Neutro e Independente; o
+    # Independente repete a carta jogada antes no jogo de cartas SFA.
+    # Nenhum alinhamento é tratado como "bom" ou "mau" por si só.
+    {"id": "voz_do_caos", "nome": "Voz do Caos", "emoji": "🌀",
+     "raridade": "raro", "preco": 6,
+     "descricao": "Caos não é só destruição: é a recusa de aceitar que as coisas devem permanecer onde foram postas. Você ouviu a recusa e não discordou.",
+     "beneficios": "Cargo 🌀 Voz do Caos."},
+    {"id": "chama_da_luminaria", "nome": "Chama da Luminária", "emoji": "🔆",
+     "raridade": "raro", "preco": 6,
+     "descricao": "Luz também projeta sombra. Você carrega uma chama que protege e não finge que ela nunca queimou ninguém.",
+     "beneficios": "Cargo 🔆 Chama da Luminária."},
+    {"id": "raiz_natural", "nome": "Raiz Natural", "emoji": "🌿",
+     "raridade": "raro", "preco": 6,
+     "descricao": "Nem Caos, nem Luminária: algo insiste em crescer entre as pedras. Não é docilidade. É persistência.",
+     "beneficios": "Cargo 🌿 Raiz Natural."},
+    {"id": "fio_neutro", "nome": "Fio Neutro", "emoji": "🧵",
+     "raridade": "raro", "preco": 6,
+     "descricao": "Você não escolheu um lado. Isso não significa que não escolheu nada.",
+     "beneficios": "Cargo 🧵 Fio Neutro."},
+    {"id": "carta_independente", "nome": "Carta Independente", "emoji": "🃏",
+     "raridade": "raro", "preco": 6,
+     "descricao": "Na mesa de SFA, a Independente repete a carta jogada antes dela. Fora da mesa, ninguém consegue repetir você.",
+     "beneficios": "Cargo 🃏 Carta Independente."},
+
+    # ---- Olhos Metamorfos ----
+    # CÂNONE: manipulam realidade, tempo e espaço. EM ABERTO: alcance,
+    # limites e custos. Diferenciar mudar a coisa de mudar a percepção.
+    {"id": "olho_metamorfo_realidade", "nome": "Olho Metamorfo: Realidade", "emoji": "🧿",
+     "raridade": "epico", "preco": 8,
+     "descricao": "Mudar o que algo é e mudar como algo se mostra não são a mesma coisa. Você ainda aprende a diferença, e quem percebe a mudança.",
+     "beneficios": "Cargo 🧿 Olho Metamorfo: Realidade."},
+    {"id": "olho_metamorfo_tempo", "nome": "Olho Metamorfo: Tempo", "emoji": "⏳",
+     "raridade": "epico", "preco": 8,
+     "descricao": "Quem mexe no tempo paga em continuidade. Os registros discordam, as testemunhas também. Até onde o Olho alcança continua em aberto.",
+     "beneficios": "Cargo ⏳ Olho Metamorfo: Tempo."},
+    {"id": "olho_metamorfo_espaco", "nome": "Olho Metamorfo: Espaço", "emoji": "🧭",
+     "raridade": "epico", "preco": 8,
+     "descricao": "Distância é uma regra que se aprende a dobrar. Alguns trajetos agora levam a lugares que o mapa não conhece.",
+     "beneficios": "Cargo 🧭 Olho Metamorfo: Espaço."},
+    {"id": "reflexo_atrasado", "nome": "Reflexo Atrasado", "emoji": "🪞",
+     "raridade": "raro", "preco": 5,
+     "descricao": "O espelho mostra você um instante depois. As câmeras mostram outra coisa. Só uma das versões está errada, e talvez nenhuma.",
+     "beneficios": "Cargo 🪞 Reflexo Atrasado."},
+
+    # ---- Facções ----
+    # CÂNONE: Fé da Luminária, Aurora Templária, Filhos do Caos, Abismo
+    # Eterno, Silvestres, Alvorada Rubra (posição na cosmologia a
+    # confirmar) e Véu Neutral. Os textos tratam doutrina, líderes e
+    # ações individuais como coisas distintas.
+    {"id": "fiel_da_luminaria", "nome": "Fiel da Luminária", "emoji": "⛪",
+     "raridade": "raro", "preco": 5,
+     "descricao": "A fé promete proteção. O que ela exige em troca depende de quem a interpreta, e de quem está ouvindo.",
+     "beneficios": "Cargo ⛪ Fiel da Luminária."},
+    {"id": "cavaleiro_da_aurora", "nome": "Cavaleiro da Aurora Templária", "emoji": "🛡️",
+     "raridade": "raro", "preco": 6,
+     "descricao": "Ordem se mantém com disciplina, e disciplina se mantém com dúvidas que ninguém pode fazer em voz alta.",
+     "beneficios": "Cargo 🛡️ Cavaleiro da Aurora Templária."},
+    {"id": "filho_do_caos", "nome": "Filho do Caos", "emoji": "☄️",
+     "raridade": "raro", "preco": 6,
+     "descricao": "Há motivos demais para romper um selo: fé, ambição, curiosidade, raiva. Você conhece o seu, e não o conta a ninguém.",
+     "beneficios": "Cargo ☄️ Filho do Caos."},
+    {"id": "voz_do_abismo_eterno", "nome": "Voz do Abismo Eterno", "emoji": "⚫",
+     "raridade": "epico", "preco": 7,
+     "descricao": "Do fundo vem uma canção que só parece chamado para quem já está ouvindo. Se há um coro ou apenas ecos, ninguém confirmou.",
+     "beneficios": "Cargo ⚫ Voz do Abismo Eterno."},
+    {"id": "silvestre", "nome": "Silvestre", "emoji": "🌲",
+     "raridade": "raro", "preco": 5,
+     "descricao": "A floresta não pede licença, nem explica. Quem a segue aprende que proteger e consumir podem ser o mesmo gesto.",
+     "beneficios": "Cargo 🌲 Silvestre."},
+    {"id": "alvorada_rubra", "nome": "Sangue da Alvorada Rubra", "emoji": "🌅",
+     "raridade": "raro", "preco": 6,
+     "descricao": "Tradição, ancestralidade e uma cor que se repete. Seu lugar na ordem do mundo ainda está por ser dito.",
+     "beneficios": "Cargo 🌅 Sangue da Alvorada Rubra."},
+    {"id": "portador_do_veu_neutral", "nome": "Portador do Véu Neutral", "emoji": "🎭",
+     "raridade": "raro", "preco": 6,
+     "descricao": "Neutralidade não é ausência de interesse. Quem usa o Véu escolhe o que mostrar, e escolhe também o que esconder.",
+     "beneficios": "Cargo 🎭 Portador do Véu Neutral."},
+
+    # ---- Mundo e eras ----
+    # CÂNONE: arquipélago de Da'kor e região de Tenebra. EM ABERTO:
+    # mapas, fronteiras, política, natureza e posição de Merjin.
+    {"id": "navegante_de_dakor", "nome": "Navegante de Da'kor", "emoji": "⛵",
+     "raridade": "comum", "preco": 2,
+     "descricao": "O arquipélago aparece nos mapas de quem nunca esteve lá e some dos mapas de quem voltou.",
+     "beneficios": "Cargo ⛵ Navegante de Da'kor."},
+    {"id": "sobrevivente_de_tenebra", "nome": "Sobrevivente de Tenebra", "emoji": "🏚️",
+     "raridade": "raro", "preco": 5,
+     "descricao": "Tenebra recebe quem procura e guarda quem fica. Você saiu. Isso diz algo sobre você, ou sobre ela.",
+     "beneficios": "Cargo 🏚️ Sobrevivente de Tenebra."},
+    {"id": "nome_de_merjin", "nome": "Nome de Merjin", "emoji": "🕰️",
+     "raridade": "epico", "preco": 8,
+     "descricao": "Um nome que aparece em registros que não concordam entre si. O que ele significa e onde se encaixa continua sem resposta.",
+     "beneficios": "Cargo 🕰️ Nome de Merjin."},
+    {"id": "viajante_das_tres_eras", "nome": "Viajante das Três Eras", "emoji": "🌐",
+     "raridade": "epico", "preco": 9,
+     "descricao": "Da'kor, Era a Vapor, Futuro Distorcido. Cada ruptura o empurra para uma época diferente, e você já reconhece o cheiro de cada uma.",
+     "beneficios": "Cargo 🌐 Viajante das Três Eras."},
+
+    # ---- Maré Morta (livro em construção: só atmosfera) ----
+    # CÂNONE: cidade litorânea decadente, livraria, praia, gruta, corvo,
+    # símbolos, câmeras que não confirmam o que se vê, Ritual do Olho
+    # (vela, espelho, percepção alterada). Nada aqui revela ou fixa
+    # significados que o autor ainda não definiu.
+    {"id": "livreiro_noturno", "nome": "Livreiro Noturno", "emoji": "📚",
+     "raridade": "comum", "preco": 2,
+     "descricao": "A livraria fecha às dez. Alguns livros só se abrem depois.",
+     "beneficios": "Cargo 📚 Livreiro Noturno."},
+    {"id": "cacador_de_padroes", "nome": "Caçador de Padrões", "emoji": "🧩",
+     "raridade": "comum", "preco": 3,
+     "descricao": "Você enxerga padrões em tudo. Às vezes é talento. Às vezes é o primeiro sintoma.",
+     "beneficios": "Cargo 🧩 Caçador de Padrões."},
+    {"id": "corvo_das_sombras", "nome": "Corvo das Sombras", "emoji": "🐦‍⬛",
+     "raridade": "raro", "preco": 4,
+     "descricao": "Um corvo observa de um poste. Sempre o mesmo, sempre quando você está sozinho.",
+     "beneficios": "Cargo 🐦‍⬛ Corvo das Sombras."},
+    {"id": "explorador_da_gruta", "nome": "Explorador da Gruta", "emoji": "🔦",
+     "raridade": "raro", "preco": 5,
+     "descricao": "Há uma gruta onde o som volta antes de você falar. A lanterna mostra o caminho, mas não o que o caminho mostra de volta.",
+     "beneficios": "Cargo 🔦 Explorador da Gruta."},
+    {"id": "vela_e_espelho", "nome": "Vela e Espelho", "emoji": "🕯️",
+     "raridade": "epico", "preco": 7,
+     "descricao": "Um ritual simples: uma vela, um espelho e a percepção que começa a desobedecer. Ninguém confirmou que tenha relação com o Olho Metamorfo.",
+     "beneficios": "Cargo 🕯️ Vela e Espelho."},
+    {"id": "testemunha_sem_registro", "nome": "Testemunha Sem Registro", "emoji": "🎥",
+     "raridade": "raro", "preco": 5,
+     "descricao": "Você viu. A câmera não. Só um de vocês será acreditado, e nem sempre é o que parece.",
+     "beneficios": "Cargo 🎥 Testemunha Sem Registro."},
+
+    # ---- Sistema de RPG SFA ----
+    # CÂNONE: testes com 3d8 conservando os dois maiores; HP (físico) e
+    # SAN (mental) são dimensões diferentes.
+    {"id": "tres_dados_dois_maiores", "nome": "Três Dados, Dois Maiores", "emoji": "🎲",
+     "raridade": "comum", "preco": 2,
+     "descricao": "No SFA, rola-se 3d8 e guardam-se os dois mais altos. A sorte ajuda, mas só até certo ponto.",
+     "beneficios": "Cargo 🎲 Três Dados, Dois Maiores."},
+    {"id": "mente_intacta", "nome": "Mente Intacta", "emoji": "🧠",
+     "raridade": "raro", "preco": 5,
+     "descricao": "SAN é sobrevivência mental. A sua ainda está inteira, ou você ainda não percebeu que não está.",
+     "beneficios": "Cargo 🧠 Mente Intacta."},
+    {"id": "sanidade_em_frangalhos", "nome": "Sanidade em Frangalhos", "emoji": "🥀",
+     "raridade": "epico", "preco": 8,
+     "descricao": "Você viu o que não devia e agora conta como história. Cuidado: histórias assim têm jeito de se repetir.",
+     "beneficios": "Cargo 🥀 Sanidade em Frangalhos."},
+
+    # ---- Classes da Ruptura Temporal ----
+    # CÂNONE (jogo): as dez classes. Os textos são representações de jogo,
+    # não leis da cosmologia.
+    {"id": "selo_mago_do_veu", "nome": "Selo do Mago do Véu", "emoji": "🪄",
+     "raridade": "raro", "preco": 6,
+     "descricao": "Faz da falha da realidade um ofício. O Véu aceita o pagamento, até a conta chegar.",
+     "beneficios": "Cargo 🪄 Selo do Mago do Véu."},
+    {"id": "selo_guardiao_da_luminaria", "nome": "Selo do Guardião da Luminária", "emoji": "🏮",
+     "raridade": "raro", "preco": 6,
+     "descricao": "Barreira não é abrigo: é uma decisão de ficar onde o golpe vai cair.",
+     "beneficios": "Cargo 🏮 Selo do Guardião da Luminária."},
+    {"id": "selo_errante_temporal", "nome": "Selo do Errante Temporal", "emoji": "⏱️",
+     "raridade": "raro", "preco": 6,
+     "descricao": "O golpe aconteceu no segundo que sobrou, aquele que ninguém mais viveu.",
+     "beneficios": "Cargo ⏱️ Selo do Errante Temporal."},
+    {"id": "selo_vampiro_da_noite_carmesim", "nome": "Selo do Vampiro da Noite Carmesim", "emoji": "🧛",
+     "raridade": "raro", "preco": 6,
+     "descricao": "A Fome Carmesim cobra de quem a alimenta, e é sempre mais do que o combinado.",
+     "beneficios": "Cargo 🧛 Selo do Vampiro da Noite Carmesim."},
+    {"id": "selo_bastiao_de_drakvuh", "nome": "Selo do Bastião de Drak'vuh", "emoji": "🪵",
+     "raridade": "raro", "preco": 6,
+     "descricao": "Uma resistência que parece vir de raízes antigas. Se há relação com a árvore primordial, o Bastião não sabe dizer.",
+     "beneficios": "Cargo 🪵 Selo do Bastião de Drak'vuh."},
+    {"id": "selo_ceifador_carmesim", "nome": "Selo do Ceifador Carmesim", "emoji": "⚔️",
+     "raridade": "raro", "preco": 6,
+     "descricao": "Não ceifa quem está de pé. Espera, com paciência, a primeira rachadura.",
+     "beneficios": "Cargo ⚔️ Selo do Ceifador Carmesim."},
+    {"id": "selo_alquimista_do_abismo", "nome": "Selo do Alquimista do Abismo", "emoji": "🧪",
+     "raridade": "raro", "preco": 6,
+     "descricao": "Acumula energia que ninguém pediu e a solta quando já é tarde para pedir desculpas.",
+     "beneficios": "Cargo 🧪 Selo do Alquimista do Abismo."},
+    {"id": "selo_andarilho_da_fenda", "nome": "Selo do Andarilho da Fenda", "emoji": "🚪",
+     "raridade": "raro", "preco": 6,
+     "descricao": "Entra pela brecha, sai pela brecha, e deixa quem o perseguia olhando para uma parede.",
+     "beneficios": "Cargo 🚪 Selo do Andarilho da Fenda."},
+    {"id": "selo_silvestre_corrompido", "nome": "Selo do Silvestre Corrompido", "emoji": "🍄",
+     "raridade": "raro", "preco": 6,
+     "descricao": "Extrai vitalidade da floresta e da corrupção que a cobre, sem distinguir bem uma da outra.",
+     "beneficios": "Cargo 🍄 Selo do Silvestre Corrompido."},
+    {"id": "selo_engenhoqueiro_de_dakor", "nome": "Selo do Engenhoqueiro de Da'kor", "emoji": "⚙️",
+     "raridade": "raro", "preco": 6,
+     "descricao": "Engrenagens que funcionam porque ninguém olha para elas por tempo demais.",
+     "beneficios": "Cargo ⚙️ Selo do Engenhoqueiro de Da'kor."},
+
+    # ---- Marcos de campanha (lendárias) ----
+    {"id": "guardiao_do_canone", "nome": "Guardião do Cânone", "emoji": "🖋️",
+     "raridade": "lendario", "preco": 12,
+     "descricao": "Seu ofício é lembrar o que está estabelecido e dizer \"em aberto\" quando não sabe. Em um universo de segredos, isso é mais raro do que poder.",
+     "beneficios": "Cargo 🖋️ Guardião do Cânone."},
+    {"id": "unidade_retrospectiva", "nome": "Unidade Retrospectiva", "emoji": "🔭",
+     "raridade": "lendario", "preco": 16,
+     "descricao": "Algumas verdades só aparecem de trás para frente. Quando aparecem, mudam o sentido do começo sem apagar o que ele foi.",
+     "beneficios": "Cargo 🔭 Unidade Retrospectiva."},
 ]
 
 

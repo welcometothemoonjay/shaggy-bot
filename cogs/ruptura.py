@@ -27,7 +27,8 @@ REGRAS
 - Cada classe tem atributos próprios, UMA passiva e UMA técnica exclusivas.
 - Roubo de vida existe SOMENTE na classe Vampiro (nenhuma relíquia dá isso).
 - Criaturas possuem habilidades próprias e mostram sua INTENÇÃO no turno.
-- Recompensas passam por award_rewards() (integração com XpAndCoins).
+- Recompensas passam por award_rewards() (integração com XpAndCoins, com
+  ledger idempotente em `rpg_recompensas` — P-10).
 - Cada run gera logs no terminal do bot (logger "shaggy.ruptura").
 
 COMBATE (turnos de decisão)
@@ -4305,8 +4306,25 @@ async def award_rewards(
     xp: int = 0,
     abysmus: int = 0,
     origem: str = "ruptura_temporal",
+    run_id: str = "",
+    dedutor_chave: str = "",
+    tipo: str = "abate",
 ) -> bool:
-    """Integra com XpAndCoins.conceder_recompensas(guild_id, user_id, xp, coins, origem)."""
+    """
+    Integra com XpAndCoins (ledger idempotente de recompensas — P-10 / Fase 1).
+
+    Com `run_id` + `dedutor_chave` + `tipo` (contexto de run), usa a rota com
+    ledger `XpAndCoins.conceder_recompensa_com_ledger`:
+
+    - Abate: `run_id` + dedutor `f"{categoria}|{spec.nome}"` + tipo `"abate"`.
+    - Bônus final: `run_id` + dedutor fixo por run (`f"final|{run_id}"`) +
+      tipo `"bonus_final"`.
+
+    Retorna True quando a recompensa foi creditada (ou já estava creditada e o
+    grant foi pulado por idempotência); False quando falhou (ledger status
+    'falhou'). Sem contexto de run (ex.: PvP), mantém a rota legada
+    `conceder_recompensas`.
+    """
     if xp <= 0 and abysmus <= 0:
         return True  # nada a gravar
 
@@ -4315,24 +4333,60 @@ async def award_rewards(
         log.error("XpAndCoins não está carregado; recompensa não persistida.")
         return False
 
-    conceder = getattr(cog, "conceder_recompensas", None)
+    if not run_id or not dedutor_chave:
+        # Sem contexto de run (ex.: PvP): rota legada, sem ledger.
+        conceder = getattr(cog, "conceder_recompensas", None)
+        if not callable(conceder):
+            log.error("XpAndCoins não expõe conceder_recompensas().")
+            return False
+
+        try:
+            await asyncio.to_thread(
+                conceder,
+                guild_id=guild_id,
+                user_id=user_id,
+                xp=max(0, int(xp)),
+                coins=max(0, int(abysmus)),
+                origem=origem,
+            )
+            return True
+        except Exception:
+            log.exception(
+                "Falha ao persistir recompensa | guild=%s user=%s",
+                guild_id, user_id,
+            )
+            return False
+
+    conceder = getattr(cog, "conceder_recompensa_com_ledger", None)
     if not callable(conceder):
-        log.error("XpAndCoins não expõe conceder_recompensas().")
+        log.error("XpAndCoins não expõe conceder_recompensa_com_ledger().")
         return False
 
     try:
-        await asyncio.to_thread(
+        status = await asyncio.to_thread(
             conceder,
             guild_id=guild_id,
             user_id=user_id,
+            run_id=run_id,
+            dedutor_chave=dedutor_chave,
+            tipo=tipo,
             xp=max(0, int(xp)),
-            coins=max(0, int(abysmus)),
-            origem=origem,
+            abysmus=max(0, int(abysmus)),
         )
+        if status == "falhou":
+            log.error(
+                "Recompensa falhou no ledger | guild=%s user=%s run=%s | "
+                "dedutor=%s tipo=%s",
+                guild_id, user_id, run_id, dedutor_chave, tipo,
+            )
+            return False
+
         log.info(
-            "Recompensa persistida | guild=%s user=%s +%s XP +%s Abysmus (%s)",
-            guild_id, user_id, xp, abysmus, origem,
+            "Recompensa persistida via ledger | guild=%s user=%s | +%s XP "
+            "+%s Abysmus | run=%s | dedutor=%s | tipo=%s | status=%s",
+            guild_id, user_id, xp, abysmus, run_id, dedutor_chave, tipo, status,
         )
+        # "creditado" (agrou agora) e "pulado" (já creditado) são ambos sucesso.
         return True
     except Exception:
         log.exception(
@@ -4361,6 +4415,8 @@ def categoria_encontro(nivel: int) -> str:
 def criar_inimigo(
     nivel: int, evento: "EventoSpec | None" = None,
     categoria: str | None = None,
+    era: str | None = None,
+    nome: str | None = None,
 ) -> EnemyState:
     """
     Escolhe um inimigo do tipo correto e aplica escala moderada.
@@ -4369,30 +4425,47 @@ def criar_inimigo(
     evento ainda pode favorecer uma era e trazer exclusivas (chance própria).
     ``categoria`` permite reaproveitar o sorteio já feito pelo mercador,
     evitando que o deus seja sorteado duas vezes.
+
+    ``era`` e ``nome`` são opcionais e preservam o comportamento antigo:
+    restringem o sorteio a uma era ou forçam uma criatura específica (usado
+    por regiões e contratos de caça do RPG persistente).
     """
-    categoria = categoria or categoria_encontro(nivel)
-    chave_evento = evento.chave if evento else ""
-    base = [c for c in CRIATURAS if c.evento in ("", chave_evento)]
-    disponiveis = [c for c in base if c.categoria == categoria]
-
-    if not disponiveis:
-        categoria = "normal"
-        disponiveis = [c for c in base if c.categoria == "normal"]
-
-    elegiveis = [c for c in disponiveis if c.nivel_minimo <= nivel]
-    if elegiveis:
-        recentes = [c for c in elegiveis if c.nivel_minimo >= nivel - 6]
-        pool = recentes or elegiveis
-        if evento is not None:
-            exclusivas = [c for c in pool if c.evento == evento.chave]
-            if exclusivas and random.random() < evento.chance_exclusiva:
-                pool = exclusivas
-            elif evento.era_favorita and random.random() < evento.chance_era:
-                favoritas = [c for c in pool if c.era == evento.era_favorita]
-                pool = favoritas or pool
-        spec = random.choice(pool)
+    forcada = None
+    if nome:
+        forcada = next(
+            (c for c in CRIATURAS if c.nome.lower() == nome.strip().lower()),
+            None,
+        )
+    if forcada is not None:
+        spec = forcada
+        categoria = spec.categoria
     else:
-        spec = min(disponiveis, key=lambda c: c.nivel_minimo)
+        categoria = categoria or categoria_encontro(nivel)
+        chave_evento = evento.chave if evento else ""
+        base = [c for c in CRIATURAS if c.evento in ("", chave_evento)]
+        if era:
+            da_era = [c for c in base if c.era == era]
+            base = da_era or base
+        disponiveis = [c for c in base if c.categoria == categoria]
+
+        if not disponiveis:
+            categoria = "normal"
+            disponiveis = [c for c in base if c.categoria == "normal"]
+
+        elegiveis = [c for c in disponiveis if c.nivel_minimo <= nivel]
+        if elegiveis:
+            recentes = [c for c in elegiveis if c.nivel_minimo >= nivel - 6]
+            pool = recentes or elegiveis
+            if evento is not None:
+                exclusivas = [c for c in pool if c.evento == evento.chave]
+                if exclusivas and random.random() < evento.chance_exclusiva:
+                    pool = exclusivas
+                elif evento.era_favorita and random.random() < evento.chance_era:
+                    favoritas = [c for c in pool if c.era == evento.era_favorita]
+                    pool = favoritas or pool
+            spec = random.choice(pool)
+        else:
+            spec = min(disponiveis, key=lambda c: c.nivel_minimo)
 
     escala = max(0, nivel - spec.nivel_minimo)
     if categoria == "normal":
@@ -8815,12 +8888,35 @@ class RupturaTemporal(commands.Cog):
         self._locks_mercado: dict[tuple[int, int], asyncio.Lock] = {}
 
     async def cog_unload(self) -> None:
-        if self.runs_ativas:
-            log.warning(
-                "Cog descarregado com %d run(s) ativa(s); descartadas.",
-                len(self.runs_ativas),
-            )
+        """Descarrega o Cog finalizando runs ativas de forma controlada (P-03).
+
+        Runs em andamento são encerradas pelo mesmo motor usado pelo timeout e
+        pelo fim voluntário (`finalizar_run`), preservando o fluxo de recompensas
+        e a idempotência (`run.finalizada` protege contra dupla finalização).
+        Falhas durante o encerramento são registradas; nenhuma run é descartada
+        silenciosamente.
+        """
+        runs_ativas = list(self.runs_ativas.items())
         self.runs_ativas.clear()
+
+        if not runs_ativas:
+            return
+
+        for user_id, run in runs_ativas:
+            try:
+                embed = await self.finalizar_run(
+                    run,
+                    "Run encerrada durante o descarregamento do bot.",
+                )
+                log.info(
+                    "Run %s finalizada no unload (user=%s).",
+                    run.run_id, user_id,
+                )
+            except Exception:
+                log.exception(
+                    "Falha ao finalizar run %s no unload (user=%s).",
+                    run.run_id, user_id,
+                )
 
     def _embed_selecao(self, mochila: str) -> discord.Embed:
         """Tela de escolha de classe. Usa embed para caber as 10+ classes
@@ -9077,6 +9173,9 @@ class RupturaTemporal(commands.Cog):
             self.bot, run.guild_id, run.user_id,
             xp=xp_ganho, abysmus=moedas,
             origem=f"ruptura_{categoria}",
+            run_id=run.run_id,
+            dedutor_chave=chave_abate,
+            tipo="abate",
         )
 
         run.nivel += 1
@@ -9181,20 +9280,41 @@ class RupturaTemporal(commands.Cog):
     async def finalizar_run(
         self, run: RunState, motivo: str
     ) -> discord.Embed:
-        """Encerra a run uma única vez e retorna o embed final."""
+        """Encerra a run uma única vez e retorna o embed final.
+
+        A flag ``finalizada`` só é definida (e a run removida de
+        ``runs_ativas``) APÓS a concessão idempotente do bônus final terminar
+        com sucesso (P-10 / Fase 1). Em falha, nada é marcado: o run permanece
+        ativa e o retry (via ``finalizar_run``, timeout ou unload) reprocessa o
+        ledger ``rpg_recompensas``.
+        """
         if run.finalizada:
             return criar_embed(run, "FIM DA RUPTURA")
-        run.finalizada = True
-        self.runs_ativas.pop(run.user_id, None)
 
         multiplicador = random.randint(1, 5)
         bonus_xp = run.nivel * multiplicador
-        run.xp += bonus_xp
 
         persistido = await award_rewards(
             self.bot, run.guild_id, run.user_id,
             xp=bonus_xp, abysmus=0, origem="bonus_final_ruptura",
+            run_id=run.run_id,
+            dedutor_chave=f"final|{run.run_id}",
+            tipo="bonus_final",
         )
+
+        # P-10 / Fase 1: a flag só nasce (e a run sai de `runs_ativas`) depois
+        # que a concessão idempotente terminar. Em falha, nada é marcado: o run
+        # fica ativa para retry; o ledger já registrou o status. O bônus só entra
+        # na run (e é concedido ao XP) quando a concessão confirmou sucesso.
+        if persistido:
+            run.finalizada = True
+            self.runs_ativas.pop(run.user_id, None)
+            run.xp += bonus_xp
+        else:
+            log.warning(
+                "Bônus final não confirmado pelo ledger | guild=%s user=%s run=%s",
+                run.guild_id, run.user_id, run.run_id,
+            )
 
         duracao = int(time.monotonic() - run.inicio)
         run.evento(
